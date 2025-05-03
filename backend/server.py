@@ -29,9 +29,7 @@ class SymptomData(BaseModel):
 async def root():
     return {"message": "AI Server is running"}
 
-    @app.options("/predict")
-async def options_handler():
-    return {"message": "OK"}
+ 
 
 @app.post("/predict")
 async def predict_risk(data: SymptomData):
