@@ -1,0 +1,41 @@
+
+from fastapi import FastAPI,HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+import numpy as np
+
+
+
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # For development only
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+class SymptomData(BaseModel):
+    user_id: str
+    body_part: str
+    condition: str
+    severity: int
+    history: list  # Past symptoms from Firestore
+
+@app.get("/")  # This handles the root endpoint
+async def root():
+    return {"message": "AI Server is running"}
+
+
+
+@app.post("/predict")
+async def predict_risk(data: SymptomData):
+    try:
+        # Mock AI logic (replace with real model)
+        risk_score = np.random.uniform(0, 1)  # Placeholder
+        return {
+            "risk_score": risk_score,
+            "advice": "Monitor symptoms for 48 hours" if risk_score < 0.5 
+                     else "Consult a doctor soon"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
