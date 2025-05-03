@@ -8,11 +8,14 @@ app = FastAPI()
 
 PORT = int(os.getenv("PORT", 10000))
 
+# Update your server.py CORS settings to:
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # For development only
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=["*"],  # Allows all origins (for development only)
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
 )
 
 class SymptomData(BaseModel):
@@ -25,6 +28,10 @@ class SymptomData(BaseModel):
 @app.get("/")
 async def root():
     return {"message": "AI Server is running"}
+
+    @app.options("/predict")
+async def options_handler():
+    return {"message": "OK"}
 
 @app.post("/predict")
 async def predict_risk(data: SymptomData):
