@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone  # Add timezone import
 import os
 
 app = FastAPI()
@@ -17,7 +17,8 @@ PAIN_RULES = {
 
 def count_recurrences(history: list, target_body_part: str, target_condition: str) -> dict:
     """Counts recurrences in last 7/30 days from CURRENT TIME"""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)  # Make this offset-aware
+    
     weekly = monthly = total = 0
 
     for entry in history:
@@ -25,30 +26,59 @@ def count_recurrences(history: list, target_body_part: str, target_condition: st
         if (entry["body_part"] != target_body_part or 
             entry["condition"] != target_condition):
             continue
-            
-        entry_time = datetime.fromisoformat(entry["timestamp"])
-        if now - entry_time > timedelta(days=30):
-            continue
+        try:
+            # Ensure timestamp is properly parsed as offset-aware
+            entry_time = datetime.fromisoformat(entry["timestamp"])
+            if entry_time.tzinfo is None:
+                entry_time = entry_time.replace(tzinfo=timezone.utc)
+                
+            if now - entry_time > timedelta(days=30):
+                continue
 
-        total += 1
-        if now - entry_time <= timedelta(days=7):
-            weekly += 1
-        monthly += 1
+            total += 1
+            if now - entry_time <= timedelta(days=7):
+                weekly += 1
+            monthly += 1
+        except (ValueError, TypeError) as e:
+            print(f"Error parsing timestamp {entry['timestamp']}: {str(e)}")
+            continue
 
     return {"weekly": weekly, "monthly": monthly, "total": total}
 
 @app.post("/predict")
 async def predict_risk(data: dict):
     print("Received data:", data)
+    required_fields = ["body_part", "condition", "severity", "history"]
+    for field in required_fields:
+        if field not in data:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Missing required field: {field}"
+            )
     try:
-        counts = count_recurrences(
-            data["history"],
+
+        validated_history = []
+        for entry in data["history"]:
+            if not all(k in entry for k in ["body_part", "condition", "timestamp"]):
+                continue  # Skip invalid entries
+                
+            # Convert timestamp to ISO format if needed
+            if "T" not in entry["timestamp"]:
+                try:
+                    entry["timestamp"] = datetime.fromisoformat(entry["timestamp"]).isoformat()
+                except:
+                    continue
+            
+            validated_history.append(entry)
+
+            counts = count_recurrences(
+            validated_history,
             data["body_part"],
             data["condition"]
         )
         print("Counted recurrences:", counts)  
         condition = data["condition"]
-        rules = PAIN_RULES.get(condition)
+        rules = PAIN_RULES.get(condition, {"weekly": 3, "monthly": 5})  # Default thresholds
         
         # 1. Weekly emergency check
         if counts["weekly"] >= rules["weekly"]:
