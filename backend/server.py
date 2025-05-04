@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from datetime import datetime, timedelta, timezone  # Add timezone import
+from datetime import datetime, timedelta, timezone
 import os
 
 app = FastAPI()
@@ -16,22 +16,23 @@ PAIN_RULES = {
 }
 
 def count_recurrences(history: list, target_body_part: str, target_condition: str) -> dict:
-    """Counts recurrences in last 7/30 days from CURRENT TIME"""
-    now = datetime.now(timezone.utc)  # Make this offset-aware
-    
+    """Count symptom recurrences in last 7/30 days"""
+    now = datetime.now(timezone.utc)
     weekly = monthly = total = 0
 
     for entry in history:
-        # Skip if not the same body part AND condition
+        # Skip if not matching the current symptom
         if (entry["body_part"] != target_body_part or 
             entry["condition"] != target_condition):
             continue
+            
         try:
-            # Ensure timestamp is properly parsed as offset-aware
+            # Parse timestamp (handle both with/without timezone)
             entry_time = datetime.fromisoformat(entry["timestamp"])
             if entry_time.tzinfo is None:
                 entry_time = entry_time.replace(tzinfo=timezone.utc)
-                
+
+            # Skip if older than 30 days
             if now - entry_time > timedelta(days=30):
                 continue
 
@@ -39,16 +40,69 @@ def count_recurrences(history: list, target_body_part: str, target_condition: st
             if now - entry_time <= timedelta(days=7):
                 weekly += 1
             monthly += 1
+            
         except (ValueError, TypeError) as e:
             print(f"Error parsing timestamp {entry['timestamp']}: {str(e)}")
             continue
 
-    return {"weekly": weekly, "monthly": monthly, "total": total}
+    return {
+        "weekly": weekly,
+        "monthly": monthly,
+        "total": total
+    }
+
+def calculate_risk_score(condition, severity, history_counts):
+    base_score = severity * 10
+    
+    # Apply recurrence multipliers
+    if history_counts["weekly"] > 0:
+        base_score *= 1 + (history_counts["weekly"] * 0.2)
+    
+    # Condition-specific adjustments
+    risk_factors = {
+        "Nerve Pain": 1.5,
+        "Muscle Strain": 1.3,
+        "Headache": 1.2
+    }
+    
+    return min(100, base_score * risk_factors.get(condition, 1.0))
+
+def generate_advice(condition, risk_score, history):
+    advice_templates = {
+        "high": f"🚨 Seek medical attention within {'24 hours' if 'Pain' in condition else '3 days'}",
+        "medium": "⚠️ Schedule a doctor visit if symptoms persist",
+        "low": "ℹ️ Rest and monitor. Consider {remedy}"
+    }
+    
+    remedies = {
+        "Nerve Pain": "applying heat",
+        "Muscle Strain": "ice pack",
+        "Headache": "OTC pain relievers"
+    }
+    
+    if risk_score > 80:
+        return advice_templates["high"]
+    elif risk_score > 50:
+        patterns = detect_symptom_patterns(history)
+        if patterns:
+            return f"Recurring pattern detected. " + advice_templates["medium"]
+        return advice_templates["medium"]
+    else:
+        return advice_templates["low"].format(
+            remedy=remedies.get(condition, "rest")
+        )
+
+def detect_symptom_patterns(history):
+    patterns = {}
+    for entry in history:
+        key = f"{entry['body_part']}-{entry['condition']}"
+        patterns[key] = patterns.get(key, 0) + 1
+    return {k: v for k, v in patterns.items() if v >= 2}
 
 @app.get("/")
 async def root():
     return {"message": "AI Server is running"}
-    
+
 @app.post("/predict")
 async def predict_risk(data: dict):
     print("Received data:", data)
@@ -59,76 +113,47 @@ async def predict_risk(data: dict):
                 status_code=400, 
                 detail=f"Missing required field: {field}"
             )
-    try:
 
+    try:
+        # Data validation and preprocessing
         validated_history = []
         for entry in data["history"]:
             if not all(k in entry for k in ["body_part", "condition", "timestamp"]):
-                continue  # Skip invalid entries
+                continue
                 
-            # Convert timestamp to ISO format if needed
-            if "T" not in entry["timestamp"]:
-                try:
-                    entry["timestamp"] = datetime.fromisoformat(entry["timestamp"]).isoformat()
-                except:
-                    continue
+            try:
+                entry["timestamp"] = datetime.fromisoformat(entry["timestamp"]).isoformat()
+            except:
+                continue
             
             validated_history.append(entry)
 
-            counts = count_recurrences(
+        # Calculate risk score
+        counts = count_recurrences(
             validated_history,
             data["body_part"],
             data["condition"]
         )
-        print("Counted recurrences:", counts)  
-        condition = data["condition"]
-        rules = PAIN_RULES.get(condition, {"weekly": 3, "monthly": 5})  # Default thresholds
         
-        # 1. Weekly emergency check
-        if counts["weekly"] >= rules["weekly"]:
-            return {
-                "risk_score": 100,
-                "advice": f"🚨 EMERGENCY: {condition} repeated {counts['weekly']}x this week. CONSULT DOCTOR NOW.",
-                "timeframe": "week_emergency",
-                "recurrence_count": counts["weekly"]
-            }
-            
-        # 2. Weekly warning (approaching threshold)
-        remaining_weekly = rules["weekly"] - counts["weekly"]
-        if remaining_weekly == 1 and counts["weekly"] > 0:
-            return {
-                "risk_score": 80,
-                "advice": f"⚠️ WARNING: {condition} repeated {counts['weekly']}x this week. "
-                         f"If it happens 1 more time, consult a doctor immediately.",
-                "timeframe": "week_warning",
-                "recurrence_count": counts["weekly"]
-            }
-            
-        # 3. Monthly threshold
-        if counts["monthly"] >= rules["monthly"]:
-            return {
-                "risk_score": 70,
-                "advice": f"⚠️ {condition} repeated {counts['monthly']}x this month. Monitor closely.",
-                "timeframe": "month_warning",
-                "recurrence_count": counts["monthly"]
-            }
-            
-        # 4. Recurring but below thresholds
-        if counts["total"] > 0:
-            return {
-                "risk_score": min(30 + (counts["total"] * 10), 70),
-                "advice": f"ℹ️ You've had {condition} {counts['total']}x recently. "
-                         f"Limit is {rules['weekly']}x/week for doctor consultation.",
-                "timeframe": "recurring",
-                "recurrence_count": counts["total"]
-            }
-            
-        # 5. First-time report
+        risk_score = calculate_risk_score(
+            data["condition"],
+            data["severity"],
+            counts
+        )
+
+        # Generate personalized advice
+        advice = generate_advice(
+            data["condition"],
+            risk_score,
+            validated_history
+        )
+
         return {
-            "risk_score": min(data["severity"] * 10, 70),
-            "advice": "Take medication" if data["severity"] >= 5 else "Rest at home",
-            "timeframe": "new",
-            "recurrence_count": 0
+            "risk_score": min(100, risk_score),
+            "advice": advice,
+            "timeframe": "week_emergency" if risk_score > 80 else 
+                        "week_warning" if risk_score > 50 else "normal",
+            "recurrence_count": counts["total"]
         }
         
     except Exception as e:
