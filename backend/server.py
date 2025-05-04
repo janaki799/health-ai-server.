@@ -103,6 +103,10 @@ def detect_symptom_patterns(history):
 async def root():
     return {"message": "AI Server is running"}
 
+@app.get("/version")
+async def version():
+    return {"version": "2.0", "features": ["AI Symptom Analysis"]}
+    
 @app.post("/predict")
 async def predict_risk(data: dict):
     print("Received data:", data)
