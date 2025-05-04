@@ -45,6 +45,10 @@ def count_recurrences(history: list, target_body_part: str, target_condition: st
 
     return {"weekly": weekly, "monthly": monthly, "total": total}
 
+@app.get("/")
+async def root():
+    return {"message": "AI Server is running"}
+    
 @app.post("/predict")
 async def predict_risk(data: dict):
     print("Received data:", data)
