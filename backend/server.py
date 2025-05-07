@@ -11,7 +11,7 @@ PORT = int(os.getenv("PORT", 10000))
 def count_recurrences(history: list, target_body_part: str, target_condition: str) -> dict:
     now = datetime.now(timezone.utc)
     weekly = 0
-    monthly = 0
+    
     for entry in history:
         # Normalize field names
         body_part = entry.get("body_part") or entry.get("bodyPart")
@@ -41,14 +41,7 @@ def count_recurrences(history: list, target_body_part: str, target_condition: st
             print(f"Error parsing timestamp: {e}")
             continue
             
-    return {
-        "weekly": weekly,
-        "monthly": monthly,
-        "is_emergency": (  # Add threshold logic
-            (target_condition == "Nerve Pain" and weekly >= 3) or
-            (target_condition != "Nerve Pain" and weekly >= 5)
-        )
-    }
+    return {"weekly": weekly}
 
 def calculate_dosage(condition, age, weight_kg=None, existing_conditions=[]):
     warnings = []
@@ -79,15 +72,9 @@ def calculate_dosage(condition, age, weight_kg=None, existing_conditions=[]):
     return "Consult doctor", []
 
 # API Endpoints
-@app.api_route("/", methods=["GET", "HEAD"])
-async def root(request: Request):
-    if request.method == "HEAD":
-        return {"message": "OK"}
+@app.get("/")
+async def root():
     return {"message": "AI Server is running"}
-    
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy"}
 
 @app.post("/predict")
 async def predict_risk(data: dict):
@@ -152,11 +139,7 @@ async def predict_risk(data: dict):
         "medication": "DO NOT SELF-MEDICATE - Requires professional evaluation",  # Critical change
         "warnings": ["Stop all current medications until examined"],
         "timeframe": "week_emergency",
-        "requires_emergency_care": True,  # New flag for frontend
-        "threshold_crossed": counts["is_emergency"],
-        "reports_this_week": counts["weekly"],
-        "threshold_limit": 3 if data["condition"] == "Nerve Pain" else 5,
-        "show_normal_recommendation": not counts["is_emergency"]
+        "requires_emergency_care": True  # New flag for frontend
     }
         # Standard response
         medication, warnings = calculate_dosage(
@@ -187,4 +170,4 @@ app.add_middleware(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=PORT)           
+    uvicorn.run(app, host="0.0.0.0", port=PORT) 
