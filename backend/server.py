@@ -11,7 +11,7 @@ PORT = int(os.getenv("PORT", 10000))
 def count_recurrences(history: list, target_body_part: str, target_condition: str) -> dict:
     now = datetime.now(timezone.utc)
     weekly = 0
-    
+    monthly = 0
     for entry in history:
         # Normalize field names
         body_part = entry.get("body_part") or entry.get("bodyPart")
@@ -41,7 +41,14 @@ def count_recurrences(history: list, target_body_part: str, target_condition: st
             print(f"Error parsing timestamp: {e}")
             continue
             
-    return {"weekly": weekly}
+    return {
+        "weekly": weekly,
+        "monthly": monthly,
+        "is_emergency": (  # Add threshold logic
+            (target_condition == "Nerve Pain" and weekly >= 3) or
+            (target_condition != "Nerve Pain" and weekly >= 5)
+        )
+    }
 
 def calculate_dosage(condition, age, weight_kg=None, existing_conditions=[]):
     warnings = []
@@ -83,7 +90,17 @@ async def predict_risk(data: dict):
     for field in required_fields:
         if field not in data:
             raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
+          # Mock AI processing (replace with real logic)
+     # Mock AI processing (replace with real logic)
+        ai_response = {
+        "risk_score": 75,
+        "advice": "Medication advised",
+        "medication": "Ibuprofen 400mg",
+        "warnings": [],
+        "timeframe": "new"
+    }
 
+        return ai_response  # FastAPI auto-sends 200 status for successful returns
     # Set defaults
     data["history"] = data.get("history", [])
     data["existing_conditions"] = data.get("existing_conditions", [])
@@ -129,7 +146,11 @@ async def predict_risk(data: dict):
         "medication": "DO NOT SELF-MEDICATE - Requires professional evaluation",  # Critical change
         "warnings": ["Stop all current medications until examined"],
         "timeframe": "week_emergency",
-        "requires_emergency_care": True  # New flag for frontend
+        "requires_emergency_care": True,  # New flag for frontend
+        "threshold_crossed": counts["is_emergency"],
+        "reports_this_week": counts["weekly"],
+        "threshold_limit": 3 if data["condition"] == "Nerve Pain" else 5,
+        "show_normal_recommendation": not counts["is_emergency"]
     }
         # Standard response
         medication, warnings = calculate_dosage(
@@ -160,4 +181,4 @@ app.add_middleware(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+    uvicorn.run(app, host="0.0.0.0", port=PORT)           
