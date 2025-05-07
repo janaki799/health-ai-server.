@@ -83,17 +83,7 @@ async def predict_risk(data: dict):
     for field in required_fields:
         if field not in data:
             raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
-          # Mock AI processing (replace with real logic)
-     # Mock AI processing (replace with real logic)
-        ai_response = {
-        "risk_score": 75,
-        "advice": "Medication advised",
-        "medication": "Ibuprofen 400mg",
-        "warnings": [],
-        "timeframe": "new"
-    }
 
-        return ai_response  # FastAPI auto-sends 200 status for successful returns
     # Set defaults
     data["history"] = data.get("history", [])
     data["existing_conditions"] = data.get("existing_conditions", [])
@@ -170,4 +160,4 @@ app.add_middleware(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=PORT) 
+    uvicorn.run(app, host="0.0.0.0", port=PORT)
