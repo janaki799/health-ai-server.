@@ -79,9 +79,12 @@ def calculate_dosage(condition, age, weight_kg=None, existing_conditions=[]):
     return "Consult doctor", []
 
 # API Endpoints
-@app.get("/")
+@app.get("/", methods=["GET", "HEAD"])
 async def root():
     return {"message": "AI Server is running"}
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
 
 @app.post("/predict")
 async def predict_risk(data: dict):
