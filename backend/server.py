@@ -125,11 +125,12 @@ async def predict_risk(data: dict):
             )
             return {
         "risk_score": 100,
-        "advice": f"🚨 EMERGENCY: {data['condition']} occurred {counts['weekly']}x this week - CONSULT DOCTOR IMMEDIATELY",
-        "medication": "DO NOT SELF-MEDICATE - Requires professional evaluation",  # Critical change
+        "advice": f"🚨 EMERGENCY: {data['condition']} occurred {counts['weekly']}x this week",
+        "medication": "CONSULT DOCTOR IMMEDIATELY - DO NOT SELF-MEDICATE",  # Critical change
         "warnings": ["Stop all current medications until examined"],
-        "timeframe": "week_emergency",
-        "requires_emergency_care": True  # New flag for frontend
+        "threshold_crossed": True,  # New flag
+        "reports_this_week": counts["weekly"],  # Add count
+        "threshold_limit": emergency_threshold  # Add threshold
     }
         # Standard response
         medication, warnings = calculate_dosage(
