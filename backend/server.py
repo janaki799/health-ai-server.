@@ -7,11 +7,10 @@ app = FastAPI()
 
 PORT = int(os.getenv("PORT", 10000))
 
+# Helper Functions
 def count_recurrences(history: list, target_body_part: str, target_condition: str) -> dict:
     now = datetime.now(timezone.utc)
     weekly = 0
-    monthly = 0
-    first_report_date = None
     
     for entry in history:
         # Normalize field names
@@ -32,27 +31,18 @@ def count_recurrences(history: list, target_body_part: str, target_condition: st
                 entry_time = timestamp.replace(tzinfo=timezone.utc)
             else:
                 continue
-        except Exception as e:
-            # Log or handle the exception
-            continue
                 
-        if body_part == target_body_part and condition == target_condition:
-            if not first_report_date or entry_time < first_report_date:
-                first_report_date = entry_time
-                
-            if (now - entry_time) <= timedelta(days=7):
+            if (body_part == target_body_part and 
+                condition == target_condition and
+                (now - entry_time) <= timedelta(days=7)):
                 weekly += 1
-            if (now - entry_time) <= timedelta(days=30):
-                monthly += 1
                 
-    days_since_first_report = (now - first_report_date).days if first_report_date else 0
-    
-    return {
-        "weekly": weekly,
-        "monthly": monthly,
-        "show_monthly": days_since_first_report >= 7,  # New flag
-        "first_report_days_ago": days_since_first_report
-    }
+        except Exception as e:
+            print(f"Error parsing timestamp: {e}")
+            continue
+            
+    return {"weekly": weekly}
+
 def calculate_dosage(condition, age, weight_kg=None, existing_conditions=[]):
     warnings = []
     
