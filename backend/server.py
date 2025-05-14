@@ -1,10 +1,15 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timedelta, timezone
+from google.cloud import firestore
+from firebase_admin import credentials, firestore
 import os
-
+import firebase_admin
 app = FastAPI()
-
+cred = credentials.ApplicationDefault()
+cred = credentials.Certificate("medication-provider-firebase-adminsdk-fbsvc-ee3c9059f0.json")
+firebase_admin.initialize_app(cred)
+db = firestore.client()
 PORT = int(os.getenv("PORT", 10000))
 
 def count_recurrences(history: list, target_body_part: str, target_condition: str) -> dict:
@@ -89,77 +94,83 @@ async def root():
 @app.post("/predict")
 async def predict_risk(data: dict):
     # Input validation
-    required_fields = ["body_part", "condition", "severity", "age"]
+    required_fields = ["body_part", "condition", "severity", "age", "user_id"]
     for field in required_fields:
         if field not in data:
             raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
 
-    # Set defaults
-    data["history"] = data.get("history", [])
-    data["existing_conditions"] = data.get("existing_conditions", [])
-
     try:
-        # Define thresholds
-        emergency_thresholds = {
-            "Nerve Pain": 3,
-            "Muscle Strain": 4
-        }
-        emergency_threshold = emergency_thresholds.get(data["condition"], 3)
+        # Initialize defaults
+        is_cleared = False
+        pain_key = f"{data['body_part']}_{data['condition']}".lower().replace(" ", "_")
 
-        # Calculate recurrence
-        counts = count_recurrences(
-            data["history"],
-            data["body_part"],
-            data["condition"]
-        )
+        # Get user document
+        user_ref = db.collection("users").document(data["user_id"])
+        user_doc = user_ref.get()
 
-        # Dynamic scoring
-        base_score = data["severity"] * 10
-        age = int(data["age"])
+        # Check clearance status if user exists
+        if user_doc.exists:
+            user_data = user_doc.to_dict()
+            threshold_data = user_data.get("thresholds", {}).get(pain_key, {})
+            expires_at = threshold_data.get("expires_at")
+            
+            if isinstance(expires_at, datetime):
+                is_cleared = threshold_data.get("cleared", False) and expires_at > datetime.now(timezone.utc)
+            else:
+                is_cleared = threshold_data.get("cleared", False)
+
+        # Threshold check
+        counts = count_recurrences(data["history"], data["body_part"], data["condition"])
         
-        # Age multipliers
-        if age < 12: base_score *= 1.3
-        elif age > 65: base_score *= 1.4
-        
-        # Condition multipliers
-        if data["condition"] == "Nerve Pain": base_score *= 1.5
-        elif data["condition"] == "Muscle Strain": base_score *= 1.2
-
-        # Emergency check
-        if counts["weekly"] >= emergency_threshold:
-            medication, warnings = calculate_dosage(
-                data["condition"],
-                age,
-                data.get("weight"),
-                data["existing_conditions"]
-            )
+        if counts["weekly"] >= 3 and not is_cleared:
             return {
-        "risk_score": 100,
-        "advice": f"🚨 EMERGENCY: {data['condition']} occurred {counts['weekly']}x this week",
-        "medication": "CONSULT DOCTOR IMMEDIATELY - DO NOT SELF-MEDICATE",  # Critical change
-        "warnings": ["Stop all current medications until examined"],
-        "threshold_crossed": True,  # New flag
-        "reports_this_week": counts["weekly"],  # Add count
-        "threshold_limit": emergency_threshold  # Add threshold
-    }
-        # Standard response
+                "emergency": True,
+                "medication": "CONSULT_DOCTOR_FIRST",
+                "consultation_required": True
+            }
+
+        # Normal response
         medication, warnings = calculate_dosage(
             data["condition"],
-            age,
+            data["age"],
             data.get("weight"),
-            data["existing_conditions"]
+            data.get("existing_conditions", [])
         )
         return {
-            "risk_score": min(100, base_score),
-            "advice": "Medication advised" if base_score >= 50 else "Home care recommended",
+            "risk_score": data["severity"] * 10,
+            "advice": "Medication advised",
             "medication": medication,
-            "warnings": warnings,
-            "timeframe": "week_warning" if counts["weekly"] > 0 else "new"
+            "warnings": warnings
         }
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-
+    
+@app.post("/verify-consultation")
+async def verify_consultation(data: dict):
+    try:
+        # Validate required fields
+        if "user_id" not in data or "pain_type" not in data:
+            raise HTTPException(status_code=400, detail="Missing user_id or pain_type")
+        
+        # Update Firestore
+        pain_key = data["pain_type"].lower().replace(" ", "_")
+        user_ref = db.collection("users").document(data["user_id"])
+        
+        await user_ref.set({
+            "thresholds": {
+                pain_key: {
+                    "cleared": True,
+                    "cleared_at": firestore.SERVER_TIMESTAMP,
+                    "expires_at": firestore.SERVER_TIMESTAMP + timedelta(days=30)  # 30-day validity
+                }
+            }
+        }, merge=True)
+        
+        return {"status": "success", "message": "Consultation verified"}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 # CORS Setup
 app.add_middleware(
     CORSMiddleware,
@@ -171,4 +182,4 @@ app.add_middleware(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+    uvicorn.run(app, host="0.0.0.0", port=PORT) 
