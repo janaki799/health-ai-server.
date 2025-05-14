@@ -12,15 +12,15 @@ def init_firebase():
     if "RENDER" in os.environ:
         # Render.com environment
         cred_dict = {
-        "type": "service_account",
+        "type": os.environ.get("service_account"),
         "project_id": os.environ.get("medication-provider"),
         "private_key_id": os.environ.get("ee3c9059f02e7ecbe99dea3c5c68e01b65af6247"),
         "private_key": os.environ.get("-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDbmXVD2g2N0H81\n7L1ROLKE28mrvHqeh+DIKmpqc6LJYqSujyMmGSO8qDqoE9dYn91HGtS+mtFNPa0Y\naF4ktqgCcw6FN5sQ1MUp9XJTPxNHiXUiCc8KIvVTieucwgQIC06aqniZftoyvgmW\n5N24KrnuF4z/LMn7D2ObPvcj1ojfQOE7NRllnceoeNC58AmrfZEaxZCPJUa2HAi6\nsdRLwqvU/k0IV8gdYUMHV8UdbshDd+uwAqbKfcUYuC1rukkCzwakFMSO4Dx5t3Jn\nP/ucbNd+OZhj4ZD9Sg5PdbY0zBDu9HJF+cE/Mw0YSFZY8CbmUCQmc/6fh2C+62wi\nxBX8xrrVAgMBAAECggEAE7S0oi8aEkTIdZVV88jrtCJo+YFDW6CD2lJ8FCtmSz4P\n2x47IDsXSuGpydVl+Kz31V6iAqyv5YeIVe1frVm6v+WFQw0XXC5LtxUweinp1/yM\nx04sBxPWAfYZb4q1g+dH2Xc8tUF94RnOkHzfLJyg7K2uWGOziFT8Mj03Pj8NL0Nf\npDxk9RMZcvSavKZv04wLwr+EmZpNYVx60glYNU3oC+9f9M5IXT+YAUz/gpL5xrTU\nGxqLvZLDLNRHzcw8JCzO9q8cyNhtQE1FVMcWutQ1dxJqfR9l/kDv72D0LBhyU7lK\nd6kl82MzVkrd06s4qr5Gs2U3F8cs0wPRuR65cFWz7QKBgQDwBbKwUILax8JsnAeH\nw+2hYfFvrJNCS1l9oiGbEwgIp+bzhy1BpTzFgem36AF/nEb5li32KdQ+yfn7pROa\nk0UvvjaF7zYjof3z7vl2TVp32DnCk4oT0AWb7cftmi77FO/clo4vdKefXDqx9iF/\nSl8Rhsx0CS5EJ5JRNqMe39Qd9wKBgQDqN7pWj9BV6c7TJptO2DOjrxv7OfB6ZeQC\nkDheisczyiw0iiqa3JyUHi0zOqEc4DBueBalCx1ec64as6B1kVHluGA/lUuLr8jr\nbF+djwUgsRrMpiqEdiO/X1VDW0AhYTH6anEdXl2wyvmoGzLCVo6s86vJOi7yy0t9\n3mW356kqkwKBgQCDIrnT9sjne0hQSpcaqANGrtpYJzN1fvFv4Ir3zNgQ0pst5mbl\nfL/NMQNehRV8gQeOCW0nFwdtHrDDuhcR1vBv+z6SwnUT1seG5MPKzMxmue4kzrMb\nzAWkga8/s4ODjpbWMDOS3etO9/bhkBYRE7MJQlql8vYiKnSYhn9suOGNVQKBgHl6\nU+wnhQ+6R6peYLkBC69+2A1yHJbvF9Z4hLQMWIs09b5+VuChQZjVGe5zHzMB2DzD\njkMlw6LEbu2scrHnoEl8Wnc/8MHPd28bc3AdyLQPB25TVMQFHj9Yq7lWr6lgZvKR\nmH95/S//5oLZMHd5O2DatSOWSNlmtY3f9nPu9F9/AoGAKvn7r8NsEtv66GGnYv7/\nVDUFlxGovUoPuIw2rK2nkeqfCIsLSzEcHsC0Qj5/cUGrm9ID0ckEMvhEHBDe96cB\niRt1TsjX0jHCx0VFKxMaIe8VzMCerW0FWy/orCcnH51EZmikTejhpT5tCp9kVkAo\npXBH7ZUGclEy7c6MVorMAng=\n-----END PRIVATE KEY-----\n"),
         "client_email": os.environ.get( "firebase-adminsdk-fbsvc@medication-provider.iam.gserviceaccount.com"),
         "client_id": os.environ.get("107089371620653630986"),
-        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-        "token_uri": "https://oauth2.googleapis.com/token",
-        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+        "auth_uri": os.environ.get("https://accounts.google.com/o/oauth2/auth"),
+        "token_uri": os.environ.get("https://oauth2.googleapis.com/token"),
+        "auth_provider_x509_cert_url": os.environ.get("https://www.googleapis.com/oauth2/v1/certs"),
         "client_x509_cert_url":os.environ.get("https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40medication-provider.iam.gserviceaccount.com"),
         "universe_domain": os.environ.get("googleapis.com"),
         
