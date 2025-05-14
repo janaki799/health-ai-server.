@@ -2,9 +2,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timedelta, timezone
 from google.cloud import firestore
-from firebase_admin import credentials, firestore
+from firebase_admin import credentials, firestore, initialize_app
 import os
-import json  # Add this with your other imports
+import json
 import firebase_admin
 app = FastAPI()
 cred = credentials.ApplicationDefault()
@@ -25,6 +25,7 @@ def init_firebase():
         "universe_domain": os.environ.get("googleapis.com"),
         
     }
+        return credentials.Certificate(cred_dict)
     else:
         # Local development
         with open("medication-provider-firebase-adminsdk-fbsvc-ee3c9059f0.json") as f:
@@ -32,7 +33,8 @@ def init_firebase():
     
         return credentials.Certificate(cred_dict)
 
-cred = init_firebase()
+if not firebase_admin._apps:
+    cred = init_firebase()
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 PORT = int(os.getenv("PORT", 10000))
