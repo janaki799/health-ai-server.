@@ -7,7 +7,23 @@ import os
 import firebase_admin
 app = FastAPI()
 cred = credentials.ApplicationDefault()
-cred = credentials.Certificate("medication-provider-firebase-adminsdk-fbsvc-ee3c9059f0.json")
+if "RENDER" in os.environ:
+    cred = credentials.Certificate({
+        "type": os.environ.get("TYPE"),
+        "project_id": os.environ.get("PROJECT_ID"),
+        "private_key_id": os.environ.get("private_key_id"),
+        "private_key": os.environ.get("private_key"),
+        "client_email": os.environ.get( "client_email"),
+        "client_id": os.environ.get("client_id"),
+        "auth_uri": os.environ.get("auth_uri"),
+        "token_uri": os.environ.get("token_uri"),
+        "auth_provider_x509_cert_url": os.environ.get("auth_provider_x509_cert_url"),
+        "client_x509_cert_url": os.environ.get("client_x509_cert_url"),
+        "universe_domain": os.environ.get("universe_domain"),
+        
+    })
+else:
+    cred = credentials.Certificate("medication-provider-firebase-adminsdk-fbsvc-ee3c9059f0.json")
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 PORT = int(os.getenv("PORT", 10000))
