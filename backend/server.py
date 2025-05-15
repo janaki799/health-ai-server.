@@ -2,12 +2,39 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timedelta, timezone
 from google.cloud import firestore
-from firebase_admin import credentials, firestore
+from firebase_admin import credentials, firestore, initialize_app
 import os
+import json
 import firebase_admin
 app = FastAPI()
 cred = credentials.ApplicationDefault()
-cred = credentials.Certificate("firebase-prod.json")
+def init_firebase():
+    if "RENDER" in os.environ:
+        # Render.com environment
+        cred_dict = {
+        "type": os.environ.get("service_account"),
+        "project_id": os.environ.get("medication-provider"),
+        "private_key_id": os.environ.get( "4c37b920e75d3519598f0152197c3a0a83bcdc43"),
+        "private_key": os.environ.get( "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDBdyFwnNguLzbb\n6PqWZyKDggdBqUHr3STrnCA32I8UrBRhwXljT5gMWykdicYEtF3UGei6ozgK8+V9\n/MY9gChraZpIT3ZqvqPIXrjlykN1lTN9NFz+sjrX6RdwY3Ys8uNw8IsgoeEeWBZC\nEAIS57HBKbKsgN8CZGSfsKYCT1PentsRO/DEizFnusruJ1V348WQa2rTaCPEJHPH\nPpMsPcOIRviksdCO/nf/+o5ZKwqW47c+hBtUh3OeGeXV6bPnfri9N/7vUM0WHKQG\nUX2N4Av5d/6516ThSwLKFsmdkFDoF7O85LulV9z1SbS52g4KYundM2gaz1RHjKuf\nr5BgMlkrAgMBAAECggEAIahBk49d1q8VGq4OBmN78CgLbiNtmgSXmzvGqSCOR9jm\nFNmtbhcXSzMC1KY24nOkjTVStUGXCuTCjKgQrvtgTMuK8UCNx+VRphbAkQ2erdKe\nqg4VjaPhM9XT45QSJ6C769aVRcCT4w0NFkIlsjdHx+SitnsXERn5HYUEZIt7elOY\nL8snaXYMeiP2sOV+QWqi7PrN4uimzc246hJ7DtrrXqzMFWcMCJv8d+Gb0ashwU1a\nd20vx0O4F/slznAys/SXaPcXv+I9kJlHljz9EbK9uYRGcXxu6sBPF60fCeXpPNCH\nyt0d3/tn2q2lNci0oVzMQULwQGLZV5JZfMSxWzpCXQKBgQDkjzlhrqP3yrGh/iyO\n5GV18k0RAI3nkHCFEb6p/Pzbhhzavn2gRNOH7bxANkTTyEU8peaPDv+EggvKhpJd\nNO7n2ebsYPEwSnrd2COW0HRxhY+SBcF2mjYE1eCxZh7d+OKpZj2iUzPP6enZkQIN\nwpgJ7AiptlGN/r54zgyMxd72PQKBgQDYsUnr+MhGVDLwFs7o9DliHdDeMQ3RC45U\nZ3GJtMK8nZTruR1sKzoO6eeNhtQKOlA2V+nCu5+i9IJ2v6QDW+tn0SbpbCTR6Xyn\npMZ8fLypO36JSq7UuA+1MdoK/cA2MYcjV60n6ciJEu4Q26EPYPEQpEWNctNOCcOL\nC8lWv69rhwKBgFwh5+2aanpOeMBmJywKoWOkIrDB2nIH5XOerY70bjFHpIYA178t\nP1/B02rG9YOxbUd/UKtGTnXpvjsLeCCeX9eSHOYYReFDhLe8kswOh4HjZvZj35Kh\nozjbxlF8auDrnOLQVfQDOhWLozqSm5NUZ9lIDk3rMoDcuYcU+DYe5Tu5AoGAZhUP\nOAVZhBhCbuyvyPrU1a4qKaJ+Wc7R3F1nFXJ8kxLBh1ML01uB3GjA1uF/ntnd09wS\nmdR93ezGUV7yy0pQWfYkGK8DoYgXW3q6rwasciU+9Tqjpj6X18qGZ8sm8+DdQv8Y\n6cau3DR4xqRQ+ce3iRl6UqqXdRoQbr68uQtQfp0CgYEAzTwdLsC44VlOo7T66Jiw\n0w7A2CtFQOM9wiJzhriUSj1gzyhKWwNA7mKJmQSXXLvG1ZOLgUr6axx+LZqiEnp6\n5BXgeSy4n3Y/eb17/nzIYZMUOOwuOHDxj4QA+yvOlT8sf5yUqsHZPOebjT4q8wr/\nacIw8UAkcqvJr38gSTrCdak=\n-----END PRIVATE KEY-----\n"),
+        "client_email": os.environ.get( "firebase-adminsdk-fbsvc@medication-provider.iam.gserviceaccount.com"),
+        "client_id": os.environ.get("107089371620653630986"),
+        "auth_uri": os.environ.get("https://accounts.google.com/o/oauth2/auth"),
+        "token_uri": os.environ.get("https://oauth2.googleapis.com/token"),
+        "auth_provider_x509_cert_url": os.environ.get("https://www.googleapis.com/oauth2/v1/certs"),
+        "client_x509_cert_url":os.environ.get("https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40medication-provider.iam.gserviceaccount.com"),
+        "universe_domain": os.environ.get("googleapis.com"),
+        
+    }
+        return credentials.Certificate(cred_dict)
+    else:
+        # Local development
+        with open("firebase-prod.json") as f:
+            cred_dict = json.load(f)
+    
+        return credentials.Certificate(cred_dict)
+
+if not firebase_admin._apps:
+    cred = init_firebase()
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 PORT = int(os.getenv("PORT", 10000))
@@ -145,6 +172,7 @@ async def predict_risk(data: dict):
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+    
 @app.post("/verify-consultation")
 async def verify_consultation(data: dict):
     try:
@@ -181,4 +209,4 @@ app.add_middleware(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+    uvicorn.run(app, host="0.0.0.0", port=PORT) 
