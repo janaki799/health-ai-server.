@@ -7,7 +7,7 @@ import os
 import firebase_admin
 app = FastAPI()
 cred = credentials.ApplicationDefault()
-cred = credentials.Certificate("medication-provider-firebase-adminsdk-fbsvc-4c37b920e7.json")
+cred = credentials.Certificate("firebase-prod.json")
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 PORT = int(os.getenv("PORT", 10000))
