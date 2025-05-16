@@ -172,6 +172,7 @@ async def predict_risk(data: dict):
                 "counts": {
                     **counts,
                     "threshold_limit": thresholds["weekly"]  # Send actual threshold
+                    "is_cleared": is_cleared  # Add this line
                 }
             }
 
