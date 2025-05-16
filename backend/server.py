@@ -162,19 +162,23 @@ async def predict_risk(data: dict):
         
         # Check against correct threshold
         threshold_crossed = counts["weekly"] >= thresholds["weekly"]
+        is_cleared = False
+    
+        if user_doc.exists:
+           threshold_data = user_doc.to_dict().get("thresholds", {}).get(pain_key, {})
+           expires_at = threshold_data.get("expires_at")
+           is_cleared = threshold_data.get("cleared", False) and expires_at and expires_at > datetime.now(timezone.utc)
         
         if threshold_crossed and not is_cleared:
-            return {
-                "emergency": True,
-                "threshold_crossed": True,
-                "consultation_required": True,
-                "medication": "CONSULT_DOCTOR_FIRST",
-                "counts": {
-                    **counts,
-                    "threshold_limit": thresholds["weekly"],  # Send actual threshold
-                    "is_cleared": is_cleared  # Add this line
-                }
-            }
+         return {
+            "threshold_crossed": True,
+            "counts": {
+                "weekly": counts["weekly"],
+                "threshold_limit": thresholds["weekly"],
+                "is_cleared": is_cleared
+            },
+            "medication": "CONSULT_DOCTOR_FIRST"
+        }
 
         # Normal response
         medication, warnings = calculate_dosage(
