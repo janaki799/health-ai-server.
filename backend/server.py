@@ -124,19 +124,24 @@ async def predict_risk(data: dict):
             threshold_data = user_data.get("thresholds", {}).get(pain_key, {})
             expires_at = threshold_data.get("expires_at")
             
-            if isinstance(expires_at, datetime):
-                is_cleared = threshold_data.get("cleared", False) and expires_at > datetime.now(timezone.utc)
-            else:
-                is_cleared = threshold_data.get("cleared", False)
+            is_cleared = (
+                threshold_data.get("cleared", False) and 
+                expires_at and 
+                expires_at > datetime.now(timezone.utc)
+            )
 
         # Threshold check
         counts = count_recurrences(data["history"], data["body_part"], data["condition"])
         
-        if counts["weekly"] >= 3 and not is_cleared:
+        threshold_crossed = counts["weekly"] >= 3
+        
+        if threshold_crossed and not is_cleared:
             return {
                 "emergency": True,
+                "threshold_crossed": True,
+                "consultation_required": True,
                 "medication": "CONSULT_DOCTOR_FIRST",
-                "consultation_required": True
+                "counts": counts  # Return counts to frontend
             }
 
         # Normal response
@@ -150,9 +155,10 @@ async def predict_risk(data: dict):
             "risk_score": data["severity"] * 10,
             "advice": "Medication advised",
             "medication": medication,
-            "warnings": warnings
+            "warnings": warnings,
+            "threshold_crossed": threshold_crossed,
+            "counts": counts
         }
-
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
     
