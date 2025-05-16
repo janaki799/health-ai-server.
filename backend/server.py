@@ -171,7 +171,7 @@ async def predict_risk(data: dict):
                 "medication": "CONSULT_DOCTOR_FIRST",
                 "counts": {
                     **counts,
-                    "threshold_limit": thresholds["weekly"]  # Send actual threshold
+                    "threshold_limit": thresholds["weekly"],  # Send actual threshold
                     "is_cleared": is_cleared  # Add this line
                 }
             }
