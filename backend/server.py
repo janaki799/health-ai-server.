@@ -140,31 +140,35 @@ async def predict_risk(data: dict):
         monthly_threshold = thresholds["monthly"]
         
         # Generate consistent key format
-        pain_key = f"{data['body_part'].lower().replace(' ', '_')}_{data['condition'].lower().replace(' ', '_')}"
-        print(f"Checking consultation status for pain key: {pain_key}")
-        print(f"Using thresholds - weekly: {weekly_threshold}, monthly: {monthly_threshold}")
+        pain_key_full = f"{data['body_part'].lower().replace(' ', '_')}_{data['condition'].lower().replace(' ', '_')}"
+        pain_key_short = data["condition"].lower().replace(" ", "_")
+    
+        print(f"Checking consultation status for keys: {pain_key_full} AND {pain_key_short}")
         
         user_ref = db.collection("users").document(data["user_id"])
         doc = user_ref.get()
         is_cleared = False
         
         if doc.exists:
-            print("User document exists")
-            threshold_data = doc.to_dict().get("thresholds", {}).get(pain_key, {})
-            print("Threshold data from Firestore:", threshold_data)
-            
-            if threshold_data:
-                expires_at = threshold_data.get("expires_at")
-                print("Expires at:", expires_at)
-                
-                if hasattr(expires_at, 'timestamp'):
-                    expires_at = expires_at.to_datetime()
-                
-                is_cleared = threshold_data.get("cleared", False) and \
-                            expires_at and \
-                            expires_at > datetime.now(timezone.utc)
+           threshold_data = doc.to_dict().get("thresholds", {})
+           # Check BOTH key formats
+           full_key_data = threshold_data.get(pain_key_full, {})
+           short_key_data = threshold_data.get(pain_key_short, {})
         
-        print(f"Consultation status - cleared: {is_cleared}")
+        # Use whichever one exists
+        threshold_data = full_key_data or short_key_data
+        print("Effective threshold data:", threshold_data)
+        
+        if threshold_data:
+            expires_at = threshold_data.get("expires_at")
+            if hasattr(expires_at, 'timestamp'):
+                expires_at = expires_at.to_datetime()
+            
+            is_cleared = threshold_data.get("cleared", False) and \
+                        expires_at and \
+                        expires_at > datetime.now(timezone.utc)
+    
+            print(f"Final consultation status - cleared: {is_cleared}")
         # Count recent reports
         now = datetime.now(timezone.utc)
         weekly_reports = 0
