@@ -135,14 +135,15 @@ async def predict_risk(data: dict):
         # Get thresholds
         thresholds = get_pain_threshold(data["condition"])
         weekly_threshold = thresholds["weekly"]
-        
-        # Check consultation status
+        print(f"Using thresholds for {data['condition']}: weekly={weekly_threshold}")  # Debug log    
+         # Check consultation status
         user_ref = db.collection("users").document(data["user_id"])
         doc = user_ref.get()
         is_cleared = False
         
         if doc.exists:
             pain_key = f"{data['body_part']}_{data['condition']}".lower().replace(" ", "_")
+            print(f"Checking consultation status for pain key: {pain_key}")  # Debug log
             threshold_data = doc.to_dict().get("thresholds", {}).get(pain_key, {})
             expires_at = threshold_data.get("expires_at")
             
@@ -152,7 +153,7 @@ async def predict_risk(data: dict):
             is_cleared = threshold_data.get("cleared", False) and \
                         expires_at and \
                         expires_at > datetime.now(timezone.utc)
-
+            print(f"Consultation status - cleared: {is_cleared}")  # Debug log
         # Count recent reports
         now = datetime.now(timezone.utc)
         weekly_reports = 0
@@ -185,6 +186,7 @@ async def predict_risk(data: dict):
 
         # Decision
         if weekly_reports >= weekly_threshold and not is_cleared:
+            print("Threshold crossed and not cleared - requiring consultation")  # Debug log
             return {
                 "threshold_crossed": True,
                 "weekly_reports": weekly_reports,
@@ -194,6 +196,7 @@ async def predict_risk(data: dict):
                 "is_cleared": False
             }
         else:
+            print("Either threshold not crossed or consultation cleared")  # Debug log
             medication, warnings = calculate_dosage(
                 data["condition"],
                 data["age"],
@@ -211,6 +214,7 @@ async def predict_risk(data: dict):
             }
 
     except Exception as e:
+        print("Error in prediction:", str(e))  # Debug log
         raise HTTPException(status_code=400, detail=str(e))
     
 @app.post("/verify-consultation")
