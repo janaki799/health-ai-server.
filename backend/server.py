@@ -206,7 +206,7 @@ async def verify_consultation(data: dict):
         expires_at = datetime.now(timezone.utc) + timedelta(days=30)
         
         # Update Firestore document
-            user_ref.set({
+            await user_ref.set({
             "thresholds": {
                 pain_key: {
                     "cleared": True,
