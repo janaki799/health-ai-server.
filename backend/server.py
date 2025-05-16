@@ -137,7 +137,7 @@ async def predict_risk(data: dict):
         # Get thresholds for this pain type
         thresholds = get_pain_threshold(data["condition"])
         weekly_threshold = thresholds["weekly"]  # Define weekly_threshold here
-        monthly_threshold = thresholds["monthly"]
+        
         
         # Generate consistent key format
         pain_key_full = f"{data['body_part'].lower().replace(' ', '_')}_{data['condition'].lower().replace(' ', '_')}"
@@ -150,14 +150,9 @@ async def predict_risk(data: dict):
         is_cleared = False
         
         if doc.exists:
-           threshold_data = doc.to_dict().get("thresholds", {})
-           # Check BOTH key formats
-           full_key_data = threshold_data.get(pain_key_full, {})
-           short_key_data = threshold_data.get(pain_key_short, {})
-        
-        # Use whichever one exists
-        threshold_data = full_key_data or short_key_data
-        print("Effective threshold data:", threshold_data)
+           thresholds_data = doc.to_dict().get("thresholds", {})
+        # Check both key formats
+           threshold_data = thresholds_data.get(pain_key_full) or thresholds_data.get(pain_key_short)
         
         if threshold_data:
             expires_at = threshold_data.get("expires_at")
