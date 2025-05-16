@@ -16,7 +16,7 @@ PAIN_THRESHOLDS = {
         "monthly": 10
     },
     "muscle_strain": {
-        "weekly": 4, 
+        "weekly": 5, 
         "monthly": 15
     },
     # Add more pain types as needed
@@ -205,8 +205,8 @@ async def verify_consultation(data: dict):
         # Calculate expiration date (30 days from now)
         expires_at = datetime.now(timezone.utc) + timedelta(days=30)
         
-        # Update Firestore document
-            await user_ref.set({
+        # CORRECTED: Remove 'await' from set()
+        user_ref.set({
             "thresholds": {
                 pain_key: {
                     "cleared": True,
@@ -214,12 +214,12 @@ async def verify_consultation(data: dict):
                     "expires_at": expires_at
                 }
             }
-        }, merge=True)
+        }, merge=True)  # No await needed here
         
         return {"status": "success", "message": "Consultation verified"}
         
     except Exception as e:
-        print(f"Error in verify-consultation: {str(e)}")  # Log the error
+        print(f"Error in verify-consultation: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 # CORS Setup
 app.add_middleware(
