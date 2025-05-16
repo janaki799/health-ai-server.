@@ -8,6 +8,28 @@ import json
 import firebase_admin
 app = FastAPI()
 cred = credentials.ApplicationDefault()
+
+# Threshold configurations
+PAIN_THRESHOLDS = {
+    "nerve_pain": {
+        "weekly": 3,
+        "monthly": 10
+    },
+    "muscle_strain": {
+        "weekly": 5, 
+        "monthly": 15
+    },
+    # Add more pain types as needed
+    "default": {
+        "weekly": 4,
+        "monthly": 12
+    }
+}
+
+def get_pain_threshold(pain_type):
+    """Get thresholds for specific pain type"""
+    key = pain_type.lower().replace(" ", "_")
+    return PAIN_THRESHOLDS.get(key, PAIN_THRESHOLDS["default"])
 def init_firebase():
     if "RENDER" in os.environ:
         # Render.com environment - use the file directly
@@ -133,7 +155,13 @@ async def predict_risk(data: dict):
         # Threshold check
         counts = count_recurrences(data["history"], data["body_part"], data["condition"])
         
-        threshold_crossed = counts["weekly"] >= 3
+        
+        # Check against correct threshold
+        counts = count_recurrences(data["history"], data["body_part"], data["condition"])
+        thresholds = get_pain_threshold(data["condition"])
+        
+        # Check against correct threshold
+        threshold_crossed = counts["weekly"] >= thresholds["weekly"]
         
         if threshold_crossed and not is_cleared:
             return {
@@ -141,7 +169,10 @@ async def predict_risk(data: dict):
                 "threshold_crossed": True,
                 "consultation_required": True,
                 "medication": "CONSULT_DOCTOR_FIRST",
-                "counts": counts  # Return counts to frontend
+                "counts": {
+                    **counts,
+                    "threshold_limit": thresholds["weekly"]  # Send actual threshold
+                }
             }
 
         # Normal response
@@ -165,20 +196,22 @@ async def predict_risk(data: dict):
 @app.post("/verify-consultation")
 async def verify_consultation(data: dict):
     try:
-        # Validate required fields
         if "user_id" not in data or "pain_type" not in data:
             raise HTTPException(status_code=400, detail="Missing user_id or pain_type")
         
-        # Update Firestore
         pain_key = data["pain_type"].lower().replace(" ", "_")
         user_ref = db.collection("users").document(data["user_id"])
         
+        # Calculate expiration date (30 days from now)
+        expires_at = datetime.now(timezone.utc) + timedelta(days=30)
+        
+        # Update Firestore document
         await user_ref.set({
             "thresholds": {
                 pain_key: {
                     "cleared": True,
                     "cleared_at": firestore.SERVER_TIMESTAMP,
-                    "expires_at": firestore.SERVER_TIMESTAMP + timedelta(days=30)  # 30-day validity
+                    "expires_at": expires_at
                 }
             }
         }, merge=True)
@@ -186,6 +219,7 @@ async def verify_consultation(data: dict):
         return {"status": "success", "message": "Consultation verified"}
         
     except Exception as e:
+        print(f"Error in verify-consultation: {str(e)}")  # Log the error
         raise HTTPException(status_code=500, detail=str(e))
 # CORS Setup
 app.add_middleware(
