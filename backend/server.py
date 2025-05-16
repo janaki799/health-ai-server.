@@ -142,8 +142,8 @@ async def predict_risk(data: dict):
         is_cleared = False
         
         if doc.exists:
-            pain_key = f"{data['body_part']}_{data['condition']}".lower().replace(" ", "_")
-            print(f"Checking consultation status for pain key: {pain_key}")  # Debug log
+            pain_key = f"{data['body_part'].lower().replace(' ', '_')}_{data['condition'].lower().replace(' ', '_')}"
+            print(f"Checking consultation status for pain key: {pain_key}")
             threshold_data = doc.to_dict().get("thresholds", {}).get(pain_key, {})
             expires_at = threshold_data.get("expires_at")
             
