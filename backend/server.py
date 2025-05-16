@@ -132,69 +132,57 @@ async def predict_risk(data: dict):
             raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
 
     try:
-        # Initialize defaults
-        is_cleared = False
-        pain_key = f"{data['body_part']}_{data['condition']}".lower().replace(" ", "_")
+        # Get correct threshold (nerve=3, muscle=5, default=4)
+        thresholds = {
+            "Nerve Pain": 3,
+            "Muscle Strain": 5
+        }
+        threshold = thresholds.get(data["condition"], 4)
+        
+        # Count only reports from last 7 days for this specific pain
+        weekly_reports = len([
+            e for e in data["history"]
+            if (e.get("body_part") == data["body_part"] or 
+                e.get("bodyPart") == data["body_part"]) and
+               e.get("condition") == data["condition"] and
+               datetime.fromisoformat(e.get("timestamp").replace('Z','+00:00')) > 
+               datetime.now(timezone.utc) - timedelta(days=7)
+        ])
 
-        # Get user document
+        # Check consultation status
         user_ref = db.collection("users").document(data["user_id"])
-        user_doc = user_ref.get()
-
-        # Check clearance status if user exists
-        if user_doc.exists:
-            user_data = user_doc.to_dict()
-            threshold_data = user_data.get("thresholds", {}).get(pain_key, {})
-            expires_at = threshold_data.get("expires_at")
-            
-            is_cleared = (
-                threshold_data.get("cleared", False) and 
-                expires_at and 
-                expires_at > datetime.now(timezone.utc)
-            )
-
-        # Threshold check
-        counts = count_recurrences(data["history"], data["body_part"], data["condition"])
+        doc =  user_ref.get()
+        pain_key = data["condition"].lower().replace(" ", "_")
         
-        
-        # Check against correct threshold
-        counts = count_recurrences(data["history"], data["body_part"], data["condition"])
-        thresholds = get_pain_threshold(data["condition"])
-        
-        # Check against correct threshold
-        threshold_crossed = counts["weekly"] >= thresholds["weekly"]
         is_cleared = False
-    
-        if user_doc.exists:
-           threshold_data = user_doc.to_dict().get("thresholds", {}).get(pain_key, {})
-           expires_at = threshold_data.get("expires_at")
-           is_cleared = threshold_data.get("cleared", False) and expires_at and expires_at > datetime.now(timezone.utc)
-        
-        if threshold_crossed and not is_cleared:
-         return {
-            "threshold_crossed": True,
-            "counts": {
-                "weekly": counts["weekly"],
-                "threshold_limit": thresholds["weekly"],
-                "is_cleared": is_cleared
-            },
-            "medication": "CONSULT_DOCTOR_FIRST"
-        }
+        if doc.exists:
+            threshold_data = doc.to_dict().get("thresholds", {}).get(pain_key, {})
+            expires_at = threshold_data.get("expires_at")
+            is_cleared = threshold_data.get("cleared", False) and \
+                        expires_at and \
+                        expires_at > datetime.now(timezone.utc)
 
-        # Normal response
-        medication, warnings = calculate_dosage(
-            data["condition"],
-            data["age"],
-            data.get("weight"),
-            data.get("existing_conditions", [])
-        )
-        return {
-            "risk_score": data["severity"] * 10,
-            "advice": "Medication advised",
-            "medication": medication,
-            "warnings": warnings,
-            "threshold_crossed": threshold_crossed,
-            "counts": counts
-        }
+        # Decision Logic
+        if weekly_reports >= threshold and not is_cleared:
+            return {
+                "block_medication": True,
+                "weekly_reports": weekly_reports,
+                "threshold": threshold,
+                "consultation_required": True
+            }
+        else:
+            medication, warnings = calculate_dosage(
+                data["condition"],
+                data["age"],
+                data.get("weight"),
+                data.get("existing_conditions", [])
+            )
+            return {
+                "medication": medication,
+                "warnings": warnings,
+                "weekly_reports": weekly_reports
+            }
+
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
     
