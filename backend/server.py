@@ -133,7 +133,7 @@ async def predict_risk(data: dict):
         # Threshold check
         counts = count_recurrences(data["history"], data["body_part"], data["condition"])
         
-         threshold_crossed = counts["weekly"] >= 3
+        threshold_crossed = counts["weekly"] >= 3
         
         if threshold_crossed and not is_cleared:
             return {
