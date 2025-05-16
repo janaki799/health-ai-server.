@@ -16,7 +16,7 @@ PAIN_THRESHOLDS = {
         "monthly": 10
     },
     "muscle_strain": {
-        "weekly": 5, 
+        "weekly": 4, 
         "monthly": 15
     },
     # Add more pain types as needed
@@ -133,54 +133,66 @@ async def predict_risk(data: dict):
 
     try:
         # Get thresholds
-        thresholds = {
-            "Nerve Pain": 3,
-            "Muscle Strain": 5
-        }
-        threshold = thresholds.get(data["condition"], 4)
+        thresholds = get_pain_threshold(data["condition"])
+        weekly_threshold = thresholds["weekly"]
+        
+        # Check consultation status
+        user_ref = db.collection("users").document(data["user_id"])
+        doc = user_ref.get()
+        is_cleared = False
+        
+        if doc.exists:
+            pain_key = f"{data['body_part']}_{data['condition']}".lower().replace(" ", "_")
+            threshold_data = doc.to_dict().get("thresholds", {}).get(pain_key, {})
+            expires_at = threshold_data.get("expires_at")
+            
+            if hasattr(expires_at, 'timestamp'):
+                expires_at = expires_at.to_datetime()
+            
+            is_cleared = threshold_data.get("cleared", False) and \
+                        expires_at and \
+                        expires_at > datetime.now(timezone.utc)
 
         # Count recent reports
         now = datetime.now(timezone.utc)
         weekly_reports = 0
+        monthly_reports = 0
         
         for entry in data.get("history", []):
-            if ((entry.get("body_part") == data["body_part"] or 
-                 entry.get("bodyPart") == data["body_part"]) and
-                entry.get("condition") == data["condition"]):
+            entry_body_part = entry.get("body_part") or entry.get("bodyPart")
+            entry_condition = entry.get("condition")
+            entry_time = entry.get("timestamp")
+            
+            if not all([entry_body_part, entry_condition, entry_time]):
+                continue
                 
-                entry_time = entry.get("timestamp")
+            try:
                 if isinstance(entry_time, str):
                     entry_time = datetime.fromisoformat(entry_time.replace('Z', '+00:00'))
-                
-                if (now - entry_time) <= timedelta(days=7):
-                    weekly_reports += 1
+                elif hasattr(entry_time, 'timestamp'):
+                    entry_time = entry_time.replace(tzinfo=timezone.utc)
+                else:
+                    continue
+                    
+                if (entry_body_part == data["body_part"] and 
+                    entry_condition == data["condition"]):
+                    if (now - entry_time) <= timedelta(days=7):
+                        weekly_reports += 1
+                    if (now - entry_time) <= timedelta(days=30):
+                        monthly_reports += 1
+            except:
+                continue
 
-         # Check consultation status
-        user_ref = db.collection("users").document(data["user_id"])
-        doc = user_ref.get()  # No await needed
-    
-        is_cleared = False
-        if doc.exists:
-           pain_key = f"{data['body_part']}_{data['condition']}".lower().replace(" ", "_")
-           threshold_data = doc.to_dict().get("thresholds", {}).get(pain_key, {})
-           expires_at = threshold_data.get("expires_at")
-        
-        # Convert Firestore timestamp if needed
-        if hasattr(expires_at, 'timestamp'):
-            expires_at = expires_at.to_datetime()
-        
-        is_cleared = threshold_data.get("cleared", False) and \
-                    expires_at and \
-                    expires_at > datetime.now(timezone.utc)
-
-    # Decision
-        if weekly_reports >= threshold and not is_cleared:
-           return {
-            "threshold_crossed": True,
-            "weekly_reports": weekly_reports,
-            "threshold": threshold,
-            "medication": "CONSULT_DOCTOR_FIRST"
-        }
+        # Decision
+        if weekly_reports >= weekly_threshold and not is_cleared:
+            return {
+                "threshold_crossed": True,
+                "weekly_reports": weekly_reports,
+                "monthly_reports": monthly_reports,
+                "threshold": weekly_threshold,
+                "medication": "CONSULT_DOCTOR_FIRST",
+                "is_cleared": False
+            }
         else:
             medication, warnings = calculate_dosage(
                 data["condition"],
@@ -192,7 +204,9 @@ async def predict_risk(data: dict):
                 "medication": medication,
                 "warnings": warnings,
                 "weekly_reports": weekly_reports,
-                "threshold": threshold,
+                "monthly_reports": monthly_reports,
+                "threshold": weekly_threshold,
+                "threshold_crossed": False,
                 "is_cleared": is_cleared
             }
 
