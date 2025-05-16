@@ -16,7 +16,7 @@ PAIN_THRESHOLDS = {
         "monthly": 10
     },
     "muscle_strain": {
-        "weekly": 5, 
+        "weekly": 4, 
         "monthly": 15
     },
     # Add more pain types as needed
