@@ -16,7 +16,7 @@ PAIN_THRESHOLDS = {
         "monthly": 10
     },
     "muscle_strain": {
-        "weekly": 5, 
+        "weekly": 4, 
         "monthly": 15
     },
     # Add more pain types as needed
@@ -132,40 +132,51 @@ async def predict_risk(data: dict):
             raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
 
     try:
-        # Get correct threshold (nerve=3, muscle=5, default=4)
+        # Get thresholds
         thresholds = {
             "Nerve Pain": 3,
             "Muscle Strain": 5
         }
         threshold = thresholds.get(data["condition"], 4)
+
+        # Count recent reports
+        now = datetime.now(timezone.utc)
+        weekly_reports = 0
         
-        # Count only reports from last 7 days for this specific pain
-        weekly_reports = len([
-            e for e in data["history"]
-            if (e.get("body_part") == data["body_part"] or 
-                e.get("bodyPart") == data["body_part"]) and
-               e.get("condition") == data["condition"] and
-               datetime.fromisoformat(e.get("timestamp").replace('Z','+00:00')) > 
-               datetime.now(timezone.utc) - timedelta(days=7)
-        ])
+        for entry in data.get("history", []):
+            if ((entry.get("body_part") == data["body_part"] or 
+                 entry.get("bodyPart") == data["body_part"]) and
+                entry.get("condition") == data["condition"]):
+                
+                entry_time = entry.get("timestamp")
+                if isinstance(entry_time, str):
+                    entry_time = datetime.fromisoformat(entry_time.replace('Z', '+00:00'))
+                
+                if (now - entry_time) <= timedelta(days=7):
+                    weekly_reports += 1
 
         # Check consultation status
         user_ref = db.collection("users").document(data["user_id"])
-        doc =  user_ref.get()
-        pain_key = data["condition"].lower().replace(" ", "_")
+        doc = user_ref.get()
+        pain_key = f"{data['body_part']}_{data['condition']}".lower().replace(" ", "_")
         
         is_cleared = False
         if doc.exists:
             threshold_data = doc.to_dict().get("thresholds", {}).get(pain_key, {})
             expires_at = threshold_data.get("expires_at")
-            is_cleared = threshold_data.get("cleared", False) and \
-                        expires_at and \
-                        expires_at > datetime.now(timezone.utc)
+            
+            if hasattr(expires_at, 'timestamp'):
+                expires_at = expires_at.to_datetime()
+            
+            is_cleared = (threshold_data.get("cleared", False) and 
+                         expires_at and 
+                         expires_at > now)
 
-        # Decision Logic
+        # Decision
         if weekly_reports >= threshold and not is_cleared:
             return {
                 "block_medication": True,
+                "message": "Consult doctor before medication",
                 "weekly_reports": weekly_reports,
                 "threshold": threshold,
                 "consultation_required": True
@@ -180,7 +191,9 @@ async def predict_risk(data: dict):
             return {
                 "medication": medication,
                 "warnings": warnings,
-                "weekly_reports": weekly_reports
+                "weekly_reports": weekly_reports,
+                "threshold": threshold,
+                "is_cleared": is_cleared
             }
 
     except Exception as e:
