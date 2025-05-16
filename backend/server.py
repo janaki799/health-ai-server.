@@ -16,7 +16,7 @@ PAIN_THRESHOLDS = {
         "monthly": 10
     },
     "muscle_strain": {
-        "weekly": 4, 
+        "weekly": 5, 
         "monthly": 15
     },
     # Add more pain types as needed
@@ -155,32 +155,32 @@ async def predict_risk(data: dict):
                 if (now - entry_time) <= timedelta(days=7):
                     weekly_reports += 1
 
-        # Check consultation status
+         # Check consultation status
         user_ref = db.collection("users").document(data["user_id"])
-        doc = user_ref.get()
-        pain_key = f"{data['body_part']}_{data['condition']}".lower().replace(" ", "_")
-        
+        doc = user_ref.get()  # No await needed
+    
         is_cleared = False
         if doc.exists:
-            threshold_data = doc.to_dict().get("thresholds", {}).get(pain_key, {})
-            expires_at = threshold_data.get("expires_at")
-            
-            if hasattr(expires_at, 'timestamp'):
-                expires_at = expires_at.to_datetime()
-            
-            is_cleared = (threshold_data.get("cleared", False) and 
-                         expires_at and 
-                         expires_at > now)
+           pain_key = f"{data['body_part']}_{data['condition']}".lower().replace(" ", "_")
+           threshold_data = doc.to_dict().get("thresholds", {}).get(pain_key, {})
+           expires_at = threshold_data.get("expires_at")
+        
+        # Convert Firestore timestamp if needed
+        if hasattr(expires_at, 'timestamp'):
+            expires_at = expires_at.to_datetime()
+        
+        is_cleared = threshold_data.get("cleared", False) and \
+                    expires_at and \
+                    expires_at > datetime.now(timezone.utc)
 
-        # Decision
+    # Decision
         if weekly_reports >= threshold and not is_cleared:
-            return {
-                "block_medication": True,
-                "message": "Consult doctor before medication",
-                "weekly_reports": weekly_reports,
-                "threshold": threshold,
-                "consultation_required": True
-            }
+           return {
+            "threshold_crossed": True,
+            "weekly_reports": weekly_reports,
+            "threshold": threshold,
+            "medication": "CONSULT_DOCTOR_FIRST"
+        }
         else:
             medication, warnings = calculate_dosage(
                 data["condition"],
