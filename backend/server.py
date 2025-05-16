@@ -201,25 +201,26 @@ async def verify_consultation(data: dict):
         
         pain_key = data["pain_type"].lower().replace(" ", "_")
         user_ref = db.collection("users").document(data["user_id"])
-        
+        print(f"Updating consultation status for {data['user_id']} - {pain_key}")
         # Calculate expiration date (30 days from now)
         expires_at = datetime.now(timezone.utc) + timedelta(days=30)
         
         # CORRECTED: Remove 'await' from set()
-        user_ref.set({
-            "thresholds": {
-                pain_key: {
-                    "cleared": True,
-                    "cleared_at": firestore.SERVER_TIMESTAMP,
-                    "expires_at": expires_at
-                }
+         user_ref.update({
+            f"thresholds.{pain_key}": {
+                "cleared": True,
+                "cleared_at": firestore.SERVER_TIMESTAMP,
+                "expires_at": expires_at
             }
-        }, merge=True)  # No await needed here
+        })
         
-        return {"status": "success", "message": "Consultation verified"}
+        return {
+            "status": "success",
+            "expires_at": expires_at.isoformat()  # Send back expiration
+        }
         
     except Exception as e:
-        print(f"Error in verify-consultation: {str(e)}")
+        print(f"Consultation error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 # CORS Setup
 app.add_middleware(
