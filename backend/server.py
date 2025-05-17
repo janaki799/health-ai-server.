@@ -139,28 +139,36 @@ async def predict_risk(data: dict):
         weekly_threshold = thresholds["weekly"]
         
         # Check both key formats
-        pain_key_full = f"{data['body_part'].lower().replace(' ', '_')}_{data['condition'].lower().replace(' ', '_')}"
-        pain_key_short = data["condition"].lower().replace(' ', '_')
+        pain_key = f"{data['body_part'].lower().replace(' ', '_')}_{data['condition'].lower().replace(' ', '_')}"
         
         user_ref = db.collection("users").document(data["user_id"])
         doc = user_ref.get()
-        is_cleared = False
+       
         
         if doc.exists:
             thresholds_data = doc.to_dict().get("thresholds", {})
             # Check both possible key formats
-            threshold_data = thresholds_data.get(pain_key_full) or thresholds_data.get(pain_key_short)
+            threshold_data = thresholds_data.get(pain_key)
             
-            if threshold_data:
-                expires_at = threshold_data.get("expires_at")
-                if hasattr(expires_at, 'timestamp'):
-                    expires_at = expires_at.to_datetime()
-                
-                is_cleared = threshold_data.get("cleared", False) and \
-                            expires_at and \
-                            expires_at > datetime.now(timezone.utc)
-    
-            print(f"Final consultation status - cleared: {is_cleared}")
+            # Simplify the cleared check:
+        is_cleared = False
+        if threshold_data:
+           expires_at = threshold_data.get("expires_at")
+           if hasattr(expires_at, 'timestamp'):  # Firestore timestamp conversion
+              expires_at = expires_at.to_datetime()
+        is_cleared = threshold_data.get("cleared", False) and \
+                (not expires_at or expires_at > datetime.now(timezone.utc))
+        # In predict endpoint (server.py):
+        # Fix the indentation and logic in predict endpoint:
+        if data.get("reset_counts") and threshold_data:
+           first_report_date = threshold_data.get("cleared_at")
+           if first_report_date:
+               if hasattr(first_report_date, 'timestamp'):
+                  first_report_date = first_report_date.to_datetime()
+               history = [h for h in data.get("history", []) 
+                         if h.get("timestamp") > first_report_date]
+        
+        print(f"Final consultation status - cleared: {is_cleared}")
         # Count recent reports
         now = datetime.now(timezone.utc)
         weekly_reports = 0
