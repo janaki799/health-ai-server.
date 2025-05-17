@@ -6,6 +6,7 @@ from firebase_admin import credentials, firestore, initialize_app
 import os
 import json
 import firebase_admin
+
 app = FastAPI()
 cred = credentials.ApplicationDefault()
 
@@ -19,7 +20,6 @@ PAIN_THRESHOLDS = {
         "weekly": 4, 
         "monthly": 15
     },
-    # Add more pain types as needed
     "default": {
         "weekly": 4,
         "monthly": 12
@@ -30,12 +30,11 @@ def get_pain_threshold(pain_type):
     """Get thresholds for specific pain type"""
     key = pain_type.lower().replace(" ", "_")
     return PAIN_THRESHOLDS.get(key, PAIN_THRESHOLDS["default"])
+
 def init_firebase():
     if "RENDER" in os.environ:
-        # Render.com environment - use the file directly
         return credentials.Certificate("firebase-prod.json")
     else:
-        # Local development
         return credentials.Certificate("firebase-prod.json")
 
 if not firebase_admin._apps:
@@ -51,7 +50,6 @@ def count_recurrences(history: list, target_body_part: str, target_condition: st
     first_report_date = None
     
     for entry in history:
-        # Normalize field names
         body_part = entry.get("body_part") or entry.get("bodyPart")
         condition = entry.get("condition")
         timestamp = entry.get("timestamp")
@@ -60,17 +58,13 @@ def count_recurrences(history: list, target_body_part: str, target_condition: st
             continue
             
         try:
-            # Handle different timestamp formats
             if isinstance(timestamp, str):
-                # Handle ISO string (frontend format)
                 entry_time = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-            elif hasattr(timestamp, 'isoformat'):
-                # Already a datetime object (Firestore)
+            elif hasattr(timestamp, 'timestamp'):
                 entry_time = timestamp.replace(tzinfo=timezone.utc)
             else:
                 continue
-        except Exception as e:
-            # Log or handle the exception
+        except Exception:
             continue
                 
         if body_part == target_body_part and condition == target_condition:
@@ -87,13 +81,13 @@ def count_recurrences(history: list, target_body_part: str, target_condition: st
     return {
         "weekly": weekly,
         "monthly": monthly,
-        "show_monthly": days_since_first_report >= 7,  # New flag
+        "show_monthly": days_since_first_report >= 7,
         "first_report_days_ago": days_since_first_report
     }
+
 def calculate_dosage(condition, age, weight_kg=None, existing_conditions=[]):
     warnings = []
     
-    # Nerve Pain Logic
     if condition == "Nerve Pain":
         if age < 18:
             return "Consult pediatric neurologist", ["Not approved for patients under 18"]
@@ -104,8 +98,6 @@ def calculate_dosage(condition, age, weight_kg=None, existing_conditions=[]):
             return msg, warnings
         else:
             return "Gabapentin 100mg 3x daily", warnings
-
-    # Muscle Strain Logic
     elif condition == "Muscle Strain":
         if age < 12:
             dosage = f"Acetaminophen {15*(weight_kg or 10)}mg every 6h" if weight_kg else "Acetaminophen 15mg/kg"
@@ -118,7 +110,6 @@ def calculate_dosage(condition, age, weight_kg=None, existing_conditions=[]):
 
     return "Consult doctor", []
 
-# API Endpoints
 @app.get("/")
 async def root():
     return {"message": "AI Server is running"}
@@ -127,7 +118,7 @@ async def root():
 async def predict_risk(data: dict):
     print("\n=== NEW PREDICTION REQUEST ===")
     print("Full request data:", data)
-    # Input validation
+    
     required_fields = ["body_part", "condition", "severity", "age", "user_id"]
     for field in required_fields:
         if field not in data:
@@ -136,76 +127,41 @@ async def predict_risk(data: dict):
         raise HTTPException(400, "History must be a list")
 
     try:
-        # Get thresholds
         thresholds = get_pain_threshold(data["condition"])
         weekly_threshold = thresholds["weekly"]
         
-        # Check both key formats
         pain_key = f"{data['body_part'].lower().replace(' ', '_')}_{data['condition'].lower().replace(' ', '_')}"
-        
         user_ref = db.collection("users").document(data["user_id"])
         doc = user_ref.get()
        
+        is_cleared = False
+        filtered_history = data.get("history", [])
         
         if doc.exists:
             thresholds_data = doc.to_dict().get("thresholds", {})
-            # Check both possible key formats
             threshold_data = thresholds_data.get(pain_key)
             
-            # Simplify the cleared check:
-       # In the /predict endpoint
-        is_cleared = False
-        if threshold_data:
-           expires_at = threshold_data.get("expires_at")
-           if hasattr(expires_at, 'timestamp'):  # Firestore timestamp conversion
-              expires_at = expires_at.to_datetime()
-        is_cleared = threshold_data.get("cleared", False) and \
-                (not expires_at or expires_at > datetime.now(timezone.utc))
-        # In predict endpoint (server.py):
-        # Fix the indentation and logic in predict endpoint:
-        if data.get("reset_counts") and threshold_data:
-           first_report_date = threshold_data.get("cleared_at")
-           if first_report_date:
-               if hasattr(first_report_date, 'timestamp'):
-                  first_report_date = first_report_date.to_datetime()
-               history = [h for h in data.get("history", []) 
-                         if h.get("timestamp") > first_report_date]
-        
-        print(f"Final consultation status - cleared: {is_cleared}")
-        # Count recent reports
-        now = datetime.now(timezone.utc)
-        weekly_reports = 0
-        monthly_reports = 0
-        
-        # In predict endpoint, modify the history processing:
-        for entry in data.get("history", []):
-            if not entry:  # Add this check
-               continue
-            entry_body_part = entry.get("body_part") or entry.get("bodyPart")
-            entry_condition = entry.get("condition")
-            entry_time = entry.get("timestamp")
-    
-            if not all([entry_body_part, entry_condition, entry_time]):
-              continue
+            if threshold_data:
+                expires_at = threshold_data.get("expires_at")
+                if isinstance(expires_at, str):
+                    expires_at = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+                is_cleared = threshold_data.get("cleared", False) and \
+                            (not expires_at or expires_at > datetime.now(timezone.utc))
                 
-            try:
-                if isinstance(entry_time, str):
-                    entry_time = datetime.fromisoformat(entry_time.replace('Z', '+00:00'))
-                elif hasattr(entry_time, 'timestamp'):
-                    entry_time = entry_time.replace(tzinfo=timezone.utc)
-                else:
-                    continue
-                    
-                if (entry_body_part == data["body_part"] and 
-                    entry_condition == data["condition"]):
-                    if (now - entry_time) <= timedelta(days=7):
-                        weekly_reports += 1
-                    if (now - entry_time) <= timedelta(days=30):
-                        monthly_reports += 1
-            except:
-                continue
+                if data.get("reset_counts") and "cleared_at" in threshold_data:
+                    cleared_at = threshold_data["cleared_at"]
+                    if isinstance(cleared_at, str):
+                        cleared_at = datetime.fromisoformat(cleared_at.replace('Z', '+00:00'))
+                    filtered_history = [
+                        h for h in data.get("history", [])
+                        if isinstance(h.get("timestamp"), str) and 
+                        datetime.fromisoformat(h["timestamp"].replace('Z', '+00:00')) > cleared_at
+                    ]
+        
+        counts = count_recurrences(filtered_history, data["body_part"], data["condition"])
+        weekly_reports = counts["weekly"]
+        monthly_reports = counts["monthly"]
 
-        # Decision
         if weekly_reports >= weekly_threshold and not is_cleared:
             print("Threshold crossed and not cleared - requiring consultation")
             return {
@@ -241,17 +197,13 @@ async def predict_risk(data: dict):
 @app.post("/verify-consultation")
 async def verify_consultation(data: dict):
     try:
-        if "user_id" not in data or "pain_type" not in data:
-            raise HTTPException(status_code=400, detail="Missing user_id or pain_type")
+        if "user_id" not in data or "pain_type" not in data or "body_part" not in data:
+            raise HTTPException(status_code=400, detail="Missing required fields")
         
-        pain_key = data["pain_type"].lower().replace(" ", "_")
-        user_ref = db.collection("users").document(data["user_id"])
-        print(f"Updating consultation status for {data['user_id']} - {pain_key}")
-        # Calculate expiration date (30 days from now)
+        pain_key = f"{data['body_part'].lower().replace(' ', '_')}_{data['pain_type'].lower().replace(' ', '_')}"
         expires_at = datetime.now(timezone.utc) + timedelta(days=30)
         
-        # CORRECTED: Remove 'await' from set()
-        user_ref.update({
+        db.collection("users").document(data["user_id"]).update({
             f"thresholds.{pain_key}": {
                 "cleared": True,
                 "cleared_at": firestore.SERVER_TIMESTAMP,
@@ -261,13 +213,13 @@ async def verify_consultation(data: dict):
         
         return {
             "status": "success",
-            "expires_at": expires_at.isoformat()  # Send back expiration
+            "expires_at": expires_at.isoformat()
         }
         
     except Exception as e:
         print(f"Consultation error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-# CORS Setup
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -278,4 +230,4 @@ app.add_middleware(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=PORT) 
+    uvicorn.run(app, host="0.0.0.0", port=PORT)
