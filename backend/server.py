@@ -130,56 +130,63 @@ async def predict_risk(data: dict):
     try:
         thresholds = get_pain_threshold(data["condition"])
         weekly_threshold = thresholds["weekly"]
-        
         pain_key = f"{data['body_part'].lower().replace(' ', '_')}_{data['condition'].lower().replace(' ', '_')}"
+        
+        # Get user data
         user_ref = db.collection("users").document(data["user_id"])
         doc = user_ref.get()
-       
-       
-     # Get cleared_at timestamp properly
+        threshold_data = doc.to_dict().get("thresholds", {}).get(pain_key) if doc.exists else None
+        
+        # Handle cleared_at timestamp
         cleared_at = None
-        if data.get("reset_counts"):
-            pain_key = f"{data['body_part'].lower().replace(' ', '_')}_{data['condition'].lower().replace(' ', '_')}"
-            user_ref = db.collection("users").document(data["user_id"])
-            doc = user_ref.get()
-            
-        if doc.exists:
-            threshold_data = doc.to_dict().get("thresholds", {}).get(pain_key)
-            if threshold_data and threshold_data.get("cleared"):
-                cleared_at = threshold_data.get("cleared_at")
-                if isinstance(cleared_at, str):
-                    cleared_at = datetime.fromisoformat(cleared_at.replace('Z', '+00:00'))
-                elif hasattr(cleared_at, 'timestamp'):
-                    cleared_at = cleared_at.replace(tzinfo=timezone.utc)
+        if threshold_data and threshold_data.get("cleared"):
+            cleared_at = threshold_data.get("cleared_at")
+            if isinstance(cleared_at, str):
+                cleared_at = datetime.fromisoformat(cleared_at.replace('Z', '+00:00'))
+            elif hasattr(cleared_at, 'timestamp'):
+                cleared_at = cleared_at.replace(tzinfo=timezone.utc)
+        
+        # Determine if consultation is still valid
+        is_cleared = bool(cleared_at) and (
+            not threshold_data or 
+            not threshold_data.get('expires_at') or 
+            datetime.now(timezone.utc) < threshold_data.get('expires_at')
+        )
 
-        # Now set is_cleared based on actual cleared_at
-        is_cleared = bool(cleared_at) and (not threshold_data.get('expires_at') or 
-                      datetime.now(timezone.utc) < threshold_data.get('expires_at'))
-
-        # Filter history
-        filtered_history = [
-            h for h in data.get("history", [])
-            if (not cleared_at or 
-                datetime.fromisoformat(h.get("timestamp").replace('Z', '+00:00')) > cleared_at)
-        ] if data.get("reset_counts") else data.get("history", [])
-
+        # Filter history - CRITICAL FIX
+        filtered_history = []
+        for h in data.get("history", []):
+            try:
+                h_time = h.get("timestamp")
+                if not h_time:
+                    continue
+                    
+                if isinstance(h_time, str):
+                    entry_time = datetime.fromisoformat(h_time.replace('Z', '+00:00'))
+                elif hasattr(h_time, 'timestamp'):
+                    entry_time = h_time.replace(tzinfo=timezone.utc)
+                else:
+                    continue
+                    
+                if not cleared_at or entry_time > cleared_at:
+                    filtered_history.append(h)
+            except Exception:
+                continue
 
         counts = count_recurrences(filtered_history, data["body_part"], data["condition"])
         weekly_reports = counts["weekly"]
         monthly_reports = counts["monthly"]
 
         if weekly_reports >= weekly_threshold and not is_cleared:
-            print("Threshold crossed and not cleared - requiring consultation")
             return {
                 "threshold_crossed": True,
                 "weekly_reports": weekly_reports,
                 "monthly_reports": monthly_reports,
                 "threshold": weekly_threshold,
                 "medication": "CONSULT_DOCTOR_FIRST",
-                "is_cleared":  is_cleared 
+                "is_cleared": is_cleared
             }
         else:
-            print("Either threshold not crossed or consultation cleared")
             medication, warnings = calculate_dosage(
                 data["condition"],
                 data["age"],
