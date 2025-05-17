@@ -139,46 +139,51 @@ async def predict_risk(data: dict):
         
         # Handle cleared_at timestamp
         cleared_at = None
+        is_cleared = False  # Initialize is_cleared here
+        
         if threshold_data and threshold_data.get("cleared"):
             cleared_at = threshold_data.get("cleared_at")
+            expires_at = threshold_data.get("expires_at")
+            
+            # Handle all timestamp formats
             if isinstance(cleared_at, str):
-                cleared_at = datetime.fromisoformat(cleared_at.replace('Z', '+00:00'))
+                try:
+                    cleared_at = datetime.fromisoformat(cleared_at.replace('Z', '+00:00'))
+                except ValueError:
+                    cleared_at = None
             elif hasattr(cleared_at, 'timestamp'):
                 cleared_at = cleared_at.replace(tzinfo=timezone.utc)
-        
-        # Determine if consultation is still valid
-        is_cleared = bool(cleared_at) and (
-            not threshold_data or 
-            not threshold_data.get('expires_at') or 
-            datetime.now(timezone.utc) < threshold_data.get('expires_at')
-        )
-
-        # Filter history - CRITICAL FIX
+            
+            # Check if consultation is still valid
+            now = datetime.now(timezone.utc)
+            if cleared_at and (not expires_at or now < expires_at):
+                is_cleared = True
+    
+        # Filter history
         filtered_history = []
-        for h in data.get("history", []):
-            try:
-                h_time = h.get("timestamp")
-                if not h_time:
+        for entry in data.get("history", []):
+            entry_time = None
+            timestamp = entry.get("timestamp")
+            
+            if isinstance(timestamp, str):
+                try:
+                    entry_time = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                except ValueError:
                     continue
-                    
-                if isinstance(h_time, str):
-                    entry_time = datetime.fromisoformat(h_time.replace('Z', '+00:00'))
-                elif hasattr(h_time, 'timestamp'):
-                    entry_time = h_time.replace(tzinfo=timezone.utc)
-                else:
-                    continue
-                    
-                if not cleared_at or entry_time > cleared_at:
-                    filtered_history.append(h)
-            except Exception:
-                continue
+            elif hasattr(timestamp, 'timestamp'):
+                entry_time = timestamp.replace(tzinfo=timezone.utc)
+            
+            if entry_time and (not cleared_at or entry_time > cleared_at):
+                filtered_history.append(entry)
 
         counts = count_recurrences(filtered_history, data["body_part"], data["condition"])
         weekly_reports = counts["weekly"]
         monthly_reports = counts["monthly"]
+        
         print(f"Consultation status - cleared: {is_cleared}, cleared_at: {cleared_at}")
         print(f"Filtered history count: {len(filtered_history)}")
         print(f"Weekly reports: {weekly_reports}, Monthly reports: {monthly_reports}")
+        
         if weekly_reports >= weekly_threshold and not is_cleared:
             return {
                 "threshold_crossed": True,
