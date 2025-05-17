@@ -148,15 +148,21 @@ async def predict_risk(data: dict):
                 is_cleared = threshold_data.get("cleared", False) and \
                             (not expires_at or expires_at > datetime.now(timezone.utc))
                 
-                if data.get("reset_counts") and "cleared_at" in threshold_data:
-                    cleared_at = threshold_data["cleared_at"]
-                    if isinstance(cleared_at, str):
-                        cleared_at = datetime.fromisoformat(cleared_at.replace('Z', '+00:00'))
-                    filtered_history = [
-                        h for h in data.get("history", [])
-                        if isinstance(h.get("timestamp"), str) and 
-                        datetime.fromisoformat(h["timestamp"].replace('Z', '+00:00')) > cleared_at
-                    ]
+                # In the /predict endpoint 
+            if data.get("reset_counts") and threshold_data and "cleared_at" in threshold_data:
+               cleared_at = threshold_data["cleared_at"]
+               if hasattr(cleared_at, 'timestamp'):  # Firestore timestamp
+                  cleared_at = cleared_at.replace(tzinfo=timezone.utc)
+               elif isinstance(cleared_at, str):
+                    cleared_at = datetime.fromisoformat(cleared_at.replace('Z', '+00:00'))
+    
+               filtered_history = [
+                  h for h in data.get("history", [])
+                  if isinstance(h.get("timestamp"), str) and 
+                  datetime.fromisoformat(h["timestamp"].replace('Z', '+00:00')) > cleared_at
+             ]
+            else:
+                filtered_history = data.get("history", [])
         
         counts = count_recurrences(filtered_history, data["body_part"], data["condition"])
         weekly_reports = counts["weekly"]
