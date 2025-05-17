@@ -134,34 +134,31 @@ async def predict_risk(data: dict):
             raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
 
     try:
-        # Get thresholds for this pain type
+        # Get thresholds
         thresholds = get_pain_threshold(data["condition"])
-        weekly_threshold = thresholds["weekly"]  # Define weekly_threshold here
+        weekly_threshold = thresholds["weekly"]
         
-        
-        # Generate consistent key format
+        # Check both key formats
         pain_key_full = f"{data['body_part'].lower().replace(' ', '_')}_{data['condition'].lower().replace(' ', '_')}"
-        pain_key_short = data["condition"].lower().replace(" ", "_")
-    
-        print(f"Checking consultation status for keys: {pain_key_full} AND {pain_key_short}")
+        pain_key_short = data["condition"].lower().replace(' ', '_')
         
         user_ref = db.collection("users").document(data["user_id"])
         doc = user_ref.get()
         is_cleared = False
         
         if doc.exists:
-           thresholds_data = doc.to_dict().get("thresholds", {})
-        # Check both key formats
-           threshold_data = thresholds_data.get(pain_key_full) or thresholds_data.get(pain_key_short)
-        
-        if threshold_data:
-            expires_at = threshold_data.get("expires_at")
-            if hasattr(expires_at, 'timestamp'):
-                expires_at = expires_at.to_datetime()
+            thresholds_data = doc.to_dict().get("thresholds", {})
+            # Check both possible key formats
+            threshold_data = thresholds_data.get(pain_key_full) or thresholds_data.get(pain_key_short)
             
-            is_cleared = threshold_data.get("cleared", False) and \
-                        expires_at and \
-                        expires_at > datetime.now(timezone.utc)
+            if threshold_data:
+                expires_at = threshold_data.get("expires_at")
+                if hasattr(expires_at, 'timestamp'):
+                    expires_at = expires_at.to_datetime()
+                
+                is_cleared = threshold_data.get("cleared", False) and \
+                            expires_at and \
+                            expires_at > datetime.now(timezone.utc)
     
             print(f"Final consultation status - cleared: {is_cleared}")
         # Count recent reports
