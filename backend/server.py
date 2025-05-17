@@ -43,7 +43,7 @@ firebase_admin.initialize_app(cred)
 db = firestore.client()
 PORT = int(os.getenv("PORT", 10000))
 
-def count_recurrences(history: list, target_body_part: str, target_condition: str) -> dict:
+def count_recurrences(history: list, target_body_part: str, target_condition: str, cleared_at: datetime = None) -> dict:
     now = datetime.now(timezone.utc)
     weekly = 0
     monthly = 0
@@ -66,7 +66,8 @@ def count_recurrences(history: list, target_body_part: str, target_condition: st
                 continue
         except Exception:
             continue
-                
+        if cleared_at and entry_time <= cleared_at:
+            continue
         if body_part == target_body_part and condition == target_condition:
             if not first_report_date or entry_time < first_report_date:
                 first_report_date = entry_time
