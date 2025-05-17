@@ -135,9 +135,7 @@ async def predict_risk(data: dict):
         user_ref = db.collection("users").document(data["user_id"])
         doc = user_ref.get()
        
-        is_cleared = bool(cleared_at)
-        filtered_history = data.get("history", [])
-        
+       
      # Get cleared_at timestamp properly
         cleared_at = None
         if data.get("reset_counts"):
@@ -145,14 +143,18 @@ async def predict_risk(data: dict):
             user_ref = db.collection("users").document(data["user_id"])
             doc = user_ref.get()
             
-            if doc.exists:
-                threshold_data = doc.to_dict().get("thresholds", {}).get(pain_key)
-                if threshold_data and threshold_data.get("cleared"):
-                    cleared_at = threshold_data.get("cleared_at")
-                    if isinstance(cleared_at, str):
-                        cleared_at = datetime.fromisoformat(cleared_at.replace('Z', '+00:00'))
-                    elif hasattr(cleared_at, 'timestamp'):
-                        cleared_at = cleared_at.replace(tzinfo=timezone.utc)
+        if doc.exists:
+            threshold_data = doc.to_dict().get("thresholds", {}).get(pain_key)
+            if threshold_data and threshold_data.get("cleared"):
+                cleared_at = threshold_data.get("cleared_at")
+                if isinstance(cleared_at, str):
+                    cleared_at = datetime.fromisoformat(cleared_at.replace('Z', '+00:00'))
+                elif hasattr(cleared_at, 'timestamp'):
+                    cleared_at = cleared_at.replace(tzinfo=timezone.utc)
+
+        # Now set is_cleared based on actual cleared_at
+        is_cleared = bool(cleared_at) and (not threshold_data.get('expires_at') or 
+                      datetime.now(timezone.utc) < threshold_data.get('expires_at'))
 
         # Filter history
         filtered_history = [
