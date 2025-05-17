@@ -134,6 +134,7 @@ async def predict_risk(data: dict):
             raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
     if not isinstance(data.get("history", []), list):
         raise HTTPException(400, "History must be a list")
+
     try:
         # Get thresholds
         thresholds = get_pain_threshold(data["condition"])
@@ -152,11 +153,15 @@ async def predict_risk(data: dict):
             threshold_data = thresholds_data.get(pain_key)
             
             # Simplify the cleared check:
+       # In the /predict endpoint
         is_cleared = False
         if threshold_data:
            expires_at = threshold_data.get("expires_at")
-           if hasattr(expires_at, 'timestamp'):  # Firestore timestamp conversion
-              expires_at = expires_at.to_datetime()
+           if isinstance(expires_at, datetime):
+              expires_at = expires_at.replace(tzinfo=timezone.utc)
+        elif hasattr(expires_at, 'timestamp'):  # Firestore timestamp
+             expires_at = expires_at.to_datetime().replace(tzinfo=timezone.utc)
+    
         is_cleared = threshold_data.get("cleared", False) and \
                 (not expires_at or expires_at > datetime.now(timezone.utc))
         # In predict endpoint (server.py):
