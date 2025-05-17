@@ -158,8 +158,7 @@ async def predict_risk(data: dict):
             now = datetime.now(timezone.utc)
             if cleared_at and (not expires_at or now < expires_at):
                 is_cleared = True
-        if data.get("reset_counts", False):
-            is_cleared = True
+    
         # Filter history
         filtered_history = []
         for entry in data.get("history", []):
