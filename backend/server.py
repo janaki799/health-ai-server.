@@ -174,13 +174,16 @@ async def predict_risk(data: dict):
         weekly_reports = 0
         monthly_reports = 0
         
+        # In predict endpoint, modify the history processing:
         for entry in data.get("history", []):
+            if not entry:  # Add this check
+               continue
             entry_body_part = entry.get("body_part") or entry.get("bodyPart")
             entry_condition = entry.get("condition")
             entry_time = entry.get("timestamp")
-            
+    
             if not all([entry_body_part, entry_condition, entry_time]):
-                continue
+              continue
                 
             try:
                 if isinstance(entry_time, str):
