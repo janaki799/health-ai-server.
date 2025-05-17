@@ -117,15 +117,6 @@ async def root():
 @app.post("/predict")
 async def predict_risk(data: dict):
     print("\n=== NEW PREDICTION REQUEST ===")
-    print("Full request data:", data)
-    
-    required_fields = ["body_part", "condition", "severity", "age", "user_id"]
-    for field in required_fields:
-        if field not in data:
-            raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
-    if not isinstance(data.get("history", []), list):
-        raise HTTPException(400, "History must be a list")
-
     try:
         thresholds = get_pain_threshold(data["condition"])
         weekly_threshold = thresholds["weekly"]
@@ -138,26 +129,28 @@ async def predict_risk(data: dict):
         
         # Handle cleared_at timestamp
         cleared_at = None
-        is_cleared = False  # Initialize is_cleared here
+        is_cleared = False
         
-        if threshold_data and threshold_data.get("cleared"):
-            cleared_at = threshold_data.get("cleared_at")
-            expires_at = threshold_data.get("expires_at")
-            
-            # Handle all timestamp formats
+        if threshold_data:
+            # Convert all possible timestamp formats
+            cleared_at = threshold_data.get('cleared_at')
             if isinstance(cleared_at, str):
-                try:
-                    cleared_at = datetime.fromisoformat(cleared_at.replace('Z', '+00:00'))
-                except ValueError:
-                    cleared_at = None
+                cleared_at = datetime.fromisoformat(cleared_at.replace('Z', '+00:00'))
             elif hasattr(cleared_at, 'timestamp'):
                 cleared_at = cleared_at.replace(tzinfo=timezone.utc)
             
-            # Check if consultation is still valid
-            now = datetime.now(timezone.utc)
-            if cleared_at and (not expires_at or now < expires_at):
-                is_cleared = True
-    
+            expires_at = threshold_data.get('expires_at')
+            if isinstance(expires_at, str):
+                expires_at = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+            elif hasattr(expires_at, 'timestamp'):
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            
+            is_cleared = bool(
+                threshold_data.get('cleared') and 
+                cleared_at and 
+                (expires_at is None or datetime.now(timezone.utc) < expires_at)
+            )
+
         # Filter history
         filtered_history = []
         for entry in data.get("history", []):
@@ -179,26 +172,23 @@ async def predict_risk(data: dict):
         weekly_reports = counts["weekly"]
         monthly_reports = counts["monthly"]
         
-        print(f"Consultation status - cleared: {is_cleared}, cleared_at: {cleared_at}")
-        print(f"Filtered history count: {len(filtered_history)}")
-        print(f"Weekly reports: {weekly_reports}, Monthly reports: {monthly_reports}")
-        print(f"Final prediction: {{"
-              f"'threshold_crossed': {weekly_reports >= weekly_threshold and not is_cleared}, "
-              f"'weekly_reports': {weekly_reports}, "
-              f"'is_cleared': {is_cleared}, "
-              f"'cleared_at': {threshold_data.get('cleared_at') if threshold_data else None}"
-         f"}}")
+        print(f"Final verification:", {
+            'firebase_data': threshold_data,
+            'is_cleared_calc': is_cleared,
+            'current_time': datetime.now(timezone.utc),
+            'expires_valid': expires_at and datetime.now(timezone.utc) < expires_at
+        })
+
         if weekly_reports >= weekly_threshold and not is_cleared:
-           return {
-        "threshold_crossed": True,
-        "weekly_reports": weekly_reports,
-        "monthly_reports": monthly_reports,
-        "threshold": weekly_threshold,
-        "medication": "CONSULT_DOCTOR_FIRST",
-        "is_cleared": is_cleared  # Make sure this is included
-           }
+            return {
+                "threshold_crossed": True,
+                "weekly_reports": weekly_reports,
+                "monthly_reports": monthly_reports,
+                "threshold": weekly_threshold,
+                "medication": "CONSULT_DOCTOR_FIRST",
+                "is_cleared": is_cleared
+            }
         else:
-            print("Showing medication - threshold not crossed or consultation cleared")
             medication, warnings = calculate_dosage(
                 data["condition"],
                 data["age"],
