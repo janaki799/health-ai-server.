@@ -132,7 +132,8 @@ async def predict_risk(data: dict):
     for field in required_fields:
         if field not in data:
             raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
-
+    if not isinstance(data.get("history", []), list):
+        raise HTTPException(400, "History must be a list")
     try:
         # Get thresholds
         thresholds = get_pain_threshold(data["condition"])
