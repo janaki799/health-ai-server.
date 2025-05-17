@@ -176,7 +176,9 @@ async def predict_risk(data: dict):
         counts = count_recurrences(filtered_history, data["body_part"], data["condition"])
         weekly_reports = counts["weekly"]
         monthly_reports = counts["monthly"]
-
+        print(f"Consultation status - cleared: {is_cleared}, cleared_at: {cleared_at}")
+        print(f"Filtered history count: {len(filtered_history)}")
+        print(f"Weekly reports: {weekly_reports}, Monthly reports: {monthly_reports}")
         if weekly_reports >= weekly_threshold and not is_cleared:
             return {
                 "threshold_crossed": True,
@@ -187,6 +189,7 @@ async def predict_risk(data: dict):
                 "is_cleared": is_cleared
             }
         else:
+            print("Showing medication - threshold not crossed or consultation cleared")
             medication, warnings = calculate_dosage(
                 data["condition"],
                 data["age"],
