@@ -45,39 +45,44 @@ PORT = int(os.getenv("PORT", 10000))
 
 def count_recurrences(history: list, target_body_part: str, target_condition: str, cleared_at: datetime = None) -> dict:
     now = datetime.now(timezone.utc)
-    weekly = 0
-    monthly = 0
+    weekly = monthly = 0
     first_report_date = None
     
     for entry in history:
-        # Skip entries before cleared_at if it exists
-        entry_time = entry.get('timestamp')
-        if isinstance(entry_time, str):
-            entry_time = datetime.fromisoformat(entry_time.replace('Z', '+00:00'))
-        
-        if cleared_at and entry_time <= cleared_at:
+        try:
+            # Handle timestamp conversion
+            entry_time = entry.get('timestamp')
+            if isinstance(entry_time, str):
+                entry_time = datetime.fromisoformat(entry_time.replace('Z', '+00:00'))
+            elif hasattr(entry_time, 'timestamp'):
+                entry_time = entry_time.replace(tzinfo=timezone.utc)
+            else:
+                continue
+                
+            # Skip pre-consultation entries
+            if cleared_at and entry_time <= cleared_at:
+                continue
+                
+            # Verify entry matches target
+            entry_body = entry.get('body_part') or entry.get('bodyPart')
+            entry_cond = entry.get('condition')
+            if entry_body == target_body_part and entry_cond == target_condition:
+                if not first_report_date or entry_time < first_report_date:
+                    first_report_date = entry_time
+                    
+                if (now - entry_time) <= timedelta(days=7):
+                    weekly += 1
+                if (now - entry_time) <= timedelta(days=30):
+                    monthly += 1
+                    
+        except Exception as e:
+            print(f"Error processing entry: {e}")
             continue
             
-        # Use entry.get() with fallback values
-        body_part = entry.get('body_part') or entry.get('bodyPart')
-        condition = entry.get('condition')
-        
-        if body_part == target_body_part and condition == target_condition:
-            if not first_report_date or entry_time < first_report_date:
-                first_report_date = entry_time
-                
-            if (now - entry_time) <= timedelta(days=7):
-                weekly += 1
-            if (now - entry_time) <= timedelta(days=30):
-                monthly += 1
-                
-    days_since_first_report = (now - first_report_date).days if first_report_date else 0
-    
     return {
-        "weekly": weekly,
-        "monthly": monthly,
-        "show_monthly": days_since_first_report >= 7,
-        "first_report_days_ago": days_since_first_report
+        'weekly': weekly,
+        'monthly': monthly,
+        'show_monthly': (now - first_report_date).days >= 7 if first_report_date else False
     }
 
 def calculate_dosage(condition, age, weight_kg=None, existing_conditions=[]):
