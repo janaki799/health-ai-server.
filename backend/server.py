@@ -1,254 +1,166 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from datetime import datetime, timedelta, timezone
-from google.cloud import firestore
-from firebase_admin import credentials, firestore, initialize_app
-import os
-import json
-import firebase_admin
+import React, { useState, useEffect } from 'react';
+import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { db } from "../firebase";
 
-app = FastAPI()
-cred = credentials.ApplicationDefault()
+const AdviceDisplay = ({ 
+  isConsulted,
+  setIsConsulted,
+  prediction, 
+  userId, 
+  painType, 
+  bodyPart,  // Add this prop
+  onConsultationSuccess,
+  refreshKey // Add this prop
+}) => {
+  const [isLoading, setIsLoading] = useState(false);
+  const [consultationError, setConsultationError] = useState(null);
+  const [localConsulted, setLocalConsulted] = useState(false); // Add this line
 
-# Threshold configurations
-PAIN_THRESHOLDS = {
-    "nerve_pain": {
-        "weekly": 3,
-        "monthly": 10
-    },
-    "muscle_strain": {
-        "weekly": 4, 
-        "monthly": 15
-    },
-    "default": {
-        "weekly": 4,
-        "monthly": 12
-    }
+// Update the handleConsultationConfirm function:
+// In AdviceDisplay.js
+const handleConsultationConfirm = async () => {
+  setIsLoading(true);
+  setConsultationError(null);
+
+  try {
+    const painKey = `${bodyPart.toLowerCase().replace(/ /g, '_')}_${painType.toLowerCase().replace(/ /g, '_')}`;
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    
+    // 1. First update Firestore
+    await setDoc(
+      doc(db, "users", userId), 
+      {
+        [`thresholds.${painKey}`]: {
+          cleared: true,
+          cleared_at: serverTimestamp(),
+          expires_at: expiresAt,
+          weekly_reports: 0,  // Add this
+          monthly_reports: 0   // Add this
+        }
+      }, 
+      { merge: true }
+    );
+    
+          await onConsultationSuccess();
+    
+  } catch (error) {
+    console.error("Consultation error:", error);
+    setConsultationError("Failed to confirm consultation. Please try again.");
+    // Reset consulted state on error
+    setLocalConsulted(false);
+    setIsConsulted(false);
+  }
+};
+// In AdviceDisplay.js, enhance error handling:
+
+// Update useEffect to use checkConsultationStatus
+  useEffect(() => {
+    const checkConsultation = async () => {
+      if (!userId || !painType || !bodyPart) return;
+      
+      const painKey = `${bodyPart.toLowerCase().replace(/ /g, '_')}_${painType.toLowerCase().replace(/ /g, '_')}`;
+      const docSnap = await getDoc(doc(db, "users", userId));
+      
+      if (docSnap.exists()) {
+        const thresholdData = docSnap.data().thresholds?.[painKey];
+        if (thresholdData?.cleared) {
+          const now = new Date();
+          let expiresAt = thresholdData.expires_at?.toDate?.() || thresholdData.expires_at;
+          setLocalConsulted(!expiresAt || new Date(expiresAt) > now);
+          setIsConsulted(!expiresAt || new Date(expiresAt) > now);
+        }
+      }
+    };
+    
+    checkConsultation();
+  }, [userId, bodyPart, painType, refreshKey, setIsConsulted]);
+ // Add checkConsultationStatus
+  useEffect(() => {
+  console.log("AdviceDisplay state update:", {
+    isConsulted,
+    isLoading,
+    prediction,
+    bodyPart,
+    painType
+  });
+}, [isConsulted, isLoading, prediction, bodyPart, painType]);
+if (isLoading) {
+  return <div style={{padding: '20px', textAlign: 'center'}}>
+    <div className="spinner"></div>
+    <p>Updating consultation status...</p>
+  </div>;
+}
+// Only show warning if threshold crossed and not consulted
+if (prediction?.threshold_crossed && !(localConsulted || prediction?.is_cleared)) {
+  return (
+    <div style={{ 
+      borderLeft: `4px solid ${isConsulted ? 'green' : 'red'}`, 
+      padding: '15px',
+      margin: '20px 0'
+    }}>
+      {isConsulted ? (
+        <div style={{ color: 'green' }}>
+          ✓ Doctor consultation confirmed. Medication unlocked.
+        </div>
+      ) : (
+        <>
+          <h4>🚨 Doctor Consultation Required</h4>
+          <p>You've reported this {prediction.weekly_reports}/{prediction.threshold} times.</p>
+          {consultationError && <p style={{ color: 'red' }}>{consultationError}</p>}
+          <button 
+          onClick={handleConsultationConfirm}
+          disabled={isLoading}
+        style={{
+           padding: '8px 16px',
+    backgroundColor: '#1976d2',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    marginTop: '10px',
+    position: 'relative',
+    opacity: isLoading ? 0.8 : 1,
+    transition: 'opacity 0.3s ease'
+        }}
+      >
+         {isLoading ? (
+    <>
+      <span style={{ visibility: 'hidden' }}>I've Consulted a Doctor</span>
+      <div style={{
+        position: 'absolute',
+        top: '50%',
+        left: '50%',
+        transform: 'translate(-50%, -50%)',
+        width: '16px',
+        height: '16px',
+        border: '2px solid rgba(255,255,255,0.3)',
+        borderTopColor: 'white',
+        borderRadius: '50%',
+        animation: 'spin 1s linear infinite'
+      }}></div>
+    </>
+  ) : "I've Consulted a Doctor"}
+</button>
+        </>
+      )}
+    </div>
+  );
 }
 
-def get_pain_threshold(pain_type):
-    """Get thresholds for specific pain type"""
-    key = pain_type.lower().replace(" ", "_")
-    return PAIN_THRESHOLDS.get(key, PAIN_THRESHOLDS["default"])
+// Show medication if not blocked or already consulted
+return (
+  <div>
+    {prediction?.medication && prediction.medication !== "CONSULT_DOCTOR_FIRST" && (
+      <div style={{ borderLeft: '4px solid green', padding: '15px', margin: '20px 0' }}>
+        <h4>Recommended Medication</h4>
+        <p>{prediction.medication}</p>
+        {prediction.warnings?.map((warning, i) => (
+          <p key={i} style={{ color: 'orange' }}>⚠️ {warning}</p>
+        ))}
+      </div>
+    )}
+  </div>
+);
+}
 
-def init_firebase():
-    if "RENDER" in os.environ:
-        return credentials.Certificate("firebase-prod.json")
-    else:
-        return credentials.Certificate("firebase-prod.json")
-
-if not firebase_admin._apps:
-    cred = init_firebase()
-firebase_admin.initialize_app(cred)
-db = firestore.client()
-PORT = int(os.getenv("PORT", 10000))
-
-def count_recurrences(history: list, target_body_part: str, target_condition: str, cleared_at: datetime = None) -> dict:
-    now = datetime.now(timezone.utc)
-    weekly = 0
-    monthly = 0
-    first_report_date = None
-    
-    for entry in history:
-        body_part = entry.get("body_part") or entry.get("bodyPart")
-        condition = entry.get("condition")
-        timestamp = entry.get("timestamp")
-        
-        if not all([body_part, condition, timestamp]):
-            continue
-            
-        try:
-            if isinstance(timestamp, str):
-                entry_time = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-            elif hasattr(timestamp, 'timestamp'):
-                entry_time = timestamp.replace(tzinfo=timezone.utc)
-            else:
-                continue
-        except Exception:
-            continue
-        if cleared_at and entry_time <= cleared_at:
-            continue
-        if body_part == target_body_part and condition == target_condition:
-            if not first_report_date or entry_time < first_report_date:
-                first_report_date = entry_time
-                
-            if (now - entry_time) <= timedelta(days=7):
-                weekly += 1
-            if (now - entry_time) <= timedelta(days=30):
-                monthly += 1
-                
-    days_since_first_report = (now - first_report_date).days if first_report_date else 0
-    
-    return {
-        "weekly": weekly,
-        "monthly": monthly,
-        "show_monthly": days_since_first_report >= 7,
-        "first_report_days_ago": days_since_first_report
-    }
-
-def calculate_dosage(condition, age, weight_kg=None, existing_conditions=[]):
-    warnings = []
-    
-    if condition == "Nerve Pain":
-        if age < 18:
-            return "Consult pediatric neurologist", ["Not approved for patients under 18"]
-        elif age > 65:
-            msg = "Gabapentin 50mg 2x daily"
-            if "kidney_disease" in existing_conditions:
-                warnings.append("Requires creatinine clearance testing")
-            return msg, warnings
-        else:
-            return "Gabapentin 100mg 3x daily", warnings
-    elif condition == "Muscle Strain":
-        if age < 12:
-            dosage = f"Acetaminophen {15*(weight_kg or 10)}mg every 6h" if weight_kg else "Acetaminophen 15mg/kg"
-            return dosage, ["Avoid NSAIDs under age 12"]
-        elif age > 65:
-            warnings.append("Monitor for GI bleeding with NSAIDs")
-            return "Naproxen 250mg every 12h with food", warnings
-        else:
-            return "Ibuprofen 400mg every 8h with food", warnings
-
-    return "Consult doctor", []
-
-@app.get("/")
-async def root():
-    return {"message": "AI Server is running"}
-
-@app.post("/predict")
-async def predict_risk(data: dict):
-    print("\n=== NEW PREDICTION REQUEST ===")
-    print("Full request data:", data)
-    
-    required_fields = ["body_part", "condition", "severity", "age", "user_id"]
-    for field in required_fields:
-        if field not in data:
-            raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
-    if not isinstance(data.get("history", []), list):
-        raise HTTPException(400, "History must be a list")
-
-    try:
-        thresholds = get_pain_threshold(data["condition"])
-        weekly_threshold = thresholds["weekly"]
-        pain_key = f"{data['body_part'].lower().replace(' ', '_')}_{data['condition'].lower().replace(' ', '_')}"
-        
-        # Get user data
-        user_ref = db.collection("users").document(data["user_id"])
-        doc = user_ref.get()
-        threshold_data = doc.to_dict().get("thresholds", {}).get(pain_key) if doc.exists else None
-        
-        # Handle cleared_at timestamp
-        cleared_at = None
-        is_cleared = False  # Initialize is_cleared here
-        
-        if threshold_data and threshold_data.get("cleared"):
-            cleared_at = threshold_data.get("cleared_at")
-            expires_at = threshold_data.get("expires_at")
-            
-            # Handle all timestamp formats
-            if isinstance(cleared_at, str):
-                try:
-                    cleared_at = datetime.fromisoformat(cleared_at.replace('Z', '+00:00'))
-                except ValueError:
-                    cleared_at = None
-            elif hasattr(cleared_at, 'timestamp'):
-                cleared_at = cleared_at.replace(tzinfo=timezone.utc)
-            
-            # Check if consultation is still valid
-            now = datetime.now(timezone.utc)
-            if cleared_at and (not expires_at or now < expires_at):
-                is_cleared = True
-    
-        # Filter history
-        filtered_history = []
-        for entry in data.get("history", []):
-            entry_time = None
-            timestamp = entry.get("timestamp")
-            
-            if isinstance(timestamp, str):
-                try:
-                    entry_time = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-                except ValueError:
-                    continue
-            elif hasattr(timestamp, 'timestamp'):
-                entry_time = timestamp.replace(tzinfo=timezone.utc)
-            
-            if entry_time and (not cleared_at or entry_time > cleared_at):
-                filtered_history.append(entry)
-
-        counts = count_recurrences(filtered_history, data["body_part"], data["condition"])
-        weekly_reports = counts["weekly"]
-        monthly_reports = counts["monthly"]
-        
-        print(f"Consultation status - cleared: {is_cleared}, cleared_at: {cleared_at}")
-        print(f"Filtered history count: {len(filtered_history)}")
-        print(f"Weekly reports: {weekly_reports}, Monthly reports: {monthly_reports}")
-        
-        if weekly_reports >= weekly_threshold and not is_cleared:
-            return {
-                "threshold_crossed": True,
-                "weekly_reports": weekly_reports,
-                "monthly_reports": monthly_reports,
-                "threshold": weekly_threshold,
-                "medication": "CONSULT_DOCTOR_FIRST",
-                "is_cleared": is_cleared
-            }
-        else:
-            print("Showing medication - threshold not crossed or consultation cleared")
-            medication, warnings = calculate_dosage(
-                data["condition"],
-                data["age"],
-                data.get("weight"),
-                data.get("existing_conditions", [])
-            )
-            return {
-                "medication": medication,
-                "warnings": warnings,
-                "weekly_reports": weekly_reports,
-                "monthly_reports": monthly_reports,
-                "threshold": weekly_threshold,
-                "threshold_crossed": False,
-                "is_cleared": is_cleared
-            }
-
-    except Exception as e:
-        print("Error in prediction:", str(e))
-        raise HTTPException(status_code=400, detail=str(e))
-    
-@app.post("/verify-consultation")
-async def verify_consultation(data: dict):
-    try:
-        if "user_id" not in data or "pain_type" not in data or "body_part" not in data:
-            raise HTTPException(status_code=400, detail="Missing required fields")
-        
-        pain_key = f"{data['body_part'].lower().replace(' ', '_')}_{data['pain_type'].lower().replace(' ', '_')}"
-        expires_at = datetime.now(timezone.utc) + timedelta(days=30)
-        
-        db.collection("users").document(data["user_id"]).update({
-            f"thresholds.{pain_key}": {
-                "cleared": True,
-                "cleared_at": firestore.SERVER_TIMESTAMP,
-                "expires_at": expires_at
-            }
-        })
-        
-        return {
-            "status": "success",
-            "expires_at": expires_at.isoformat()
-        }
-        
-    except Exception as e:
-        print(f"Consultation error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+export default AdviceDisplay;  
