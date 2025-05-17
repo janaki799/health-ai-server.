@@ -135,36 +135,33 @@ async def predict_risk(data: dict):
         user_ref = db.collection("users").document(data["user_id"])
         doc = user_ref.get()
        
-        is_cleared = False
+        is_cleared = bool(cleared_at)
         filtered_history = data.get("history", [])
         
-        if doc.exists:
-            thresholds_data = doc.to_dict().get("thresholds", {})
-            threshold_data = thresholds_data.get(pain_key)
+     # Get cleared_at timestamp properly
+        cleared_at = None
+        if data.get("reset_counts"):
+            pain_key = f"{data['body_part'].lower().replace(' ', '_')}_{data['condition'].lower().replace(' ', '_')}"
+            user_ref = db.collection("users").document(data["user_id"])
+            doc = user_ref.get()
             
-            if threshold_data:
-                expires_at = threshold_data.get("expires_at")
-                if isinstance(expires_at, str):
-                    expires_at = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
-                is_cleared = threshold_data.get("cleared", False) and \
-                            (not expires_at or expires_at > datetime.now(timezone.utc))
-                
-                # In the /predict endpoint 
-            if data.get("reset_counts") and threshold_data and "cleared_at" in threshold_data:
-               cleared_at = threshold_data["cleared_at"]
-               if hasattr(cleared_at, 'timestamp'):  # Firestore timestamp
-                  cleared_at = cleared_at.replace(tzinfo=timezone.utc)
-               elif isinstance(cleared_at, str):
-                    cleared_at = datetime.fromisoformat(cleared_at.replace('Z', '+00:00'))
-    
-               filtered_history = [
-                  h for h in data.get("history", [])
-                  if isinstance(h.get("timestamp"), str) and 
-                  datetime.fromisoformat(h["timestamp"].replace('Z', '+00:00')) > cleared_at
-             ]
-            else:
-                filtered_history = data.get("history", [])
-        
+            if doc.exists:
+                threshold_data = doc.to_dict().get("thresholds", {}).get(pain_key)
+                if threshold_data and threshold_data.get("cleared"):
+                    cleared_at = threshold_data.get("cleared_at")
+                    if isinstance(cleared_at, str):
+                        cleared_at = datetime.fromisoformat(cleared_at.replace('Z', '+00:00'))
+                    elif hasattr(cleared_at, 'timestamp'):
+                        cleared_at = cleared_at.replace(tzinfo=timezone.utc)
+
+        # Filter history
+        filtered_history = [
+            h for h in data.get("history", [])
+            if (not cleared_at or 
+                datetime.fromisoformat(h.get("timestamp").replace('Z', '+00:00')) > cleared_at)
+        ] if data.get("reset_counts") else data.get("history", [])
+
+
         counts = count_recurrences(filtered_history, data["body_part"], data["condition"])
         weekly_reports = counts["weekly"]
         monthly_reports = counts["monthly"]
@@ -177,7 +174,7 @@ async def predict_risk(data: dict):
                 "monthly_reports": monthly_reports,
                 "threshold": weekly_threshold,
                 "medication": "CONSULT_DOCTOR_FIRST",
-                "is_cleared": False
+                "is_cleared":  is_cleared 
             }
         else:
             print("Either threshold not crossed or consultation cleared")
