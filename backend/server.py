@@ -118,6 +118,9 @@ async def root():
 async def predict_risk(data: dict):
     print("\n=== NEW PREDICTION REQUEST ===")
     try:
+        if not all(k in data for k in ["body_part", "condition", "severity", "age", "user_id"]):
+            raise HTTPException(400, "Missing required fields")
+
         thresholds = get_pain_threshold(data["condition"])
         weekly_threshold = thresholds["weekly"]
         pain_key = f"{data['body_part'].lower().replace(' ', '_')}_{data['condition'].lower().replace(' ', '_')}"
@@ -125,31 +128,34 @@ async def predict_risk(data: dict):
         # Get user data
         user_ref = db.collection("users").document(data["user_id"])
         doc = user_ref.get()
+        doc = db.collection("users").document(data["user_id"]).get()
         threshold_data = doc.to_dict().get("thresholds", {}).get(pain_key) if doc.exists else None
         
         # Handle cleared_at timestamp
         cleared_at = None
+        expires_at = None
         is_cleared = False
         
         if threshold_data:
-            # Convert all possible timestamp formats
+            # Handle cleared_at
             cleared_at = threshold_data.get('cleared_at')
             if isinstance(cleared_at, str):
                 cleared_at = datetime.fromisoformat(cleared_at.replace('Z', '+00:00'))
             elif hasattr(cleared_at, 'timestamp'):
                 cleared_at = cleared_at.replace(tzinfo=timezone.utc)
             
+            # Handle expires_at
             expires_at = threshold_data.get('expires_at')
-            if isinstance(expires_at, str):
-                expires_at = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
-            elif hasattr(expires_at, 'timestamp'):
-                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if expires_at:
+                if isinstance(expires_at, str):
+                    expires_at = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+                elif hasattr(expires_at, 'timestamp'):
+                    expires_at = expires_at.replace(tzinfo=timezone.utc)
             
             is_cleared = bool(
                 threshold_data.get('cleared') and 
                 cleared_at and 
-                (expires_at is None or datetime.now(timezone.utc) < expires_at)
-            )
+                (not expires_at or datetime.now(timezone.utc) < expires_at))
 
         # Filter history
         filtered_history = []
