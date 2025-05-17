@@ -157,11 +157,8 @@ async def predict_risk(data: dict):
         is_cleared = False
         if threshold_data:
            expires_at = threshold_data.get("expires_at")
-           if isinstance(expires_at, datetime):
-              expires_at = expires_at.replace(tzinfo=timezone.utc)
-        elif hasattr(expires_at, 'timestamp'):  # Firestore timestamp
-             expires_at = expires_at.to_datetime().replace(tzinfo=timezone.utc)
-    
+           if hasattr(expires_at, 'timestamp'):  # Firestore timestamp conversion
+              expires_at = expires_at.to_datetime()
         is_cleared = threshold_data.get("cleared", False) and \
                 (not expires_at or expires_at > datetime.now(timezone.utc))
         # In predict endpoint (server.py):
