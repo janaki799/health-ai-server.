@@ -116,83 +116,46 @@ async def root():
 
 @app.post("/predict")
 async def predict_risk(data: dict):
-    print("\n=== NEW PREDICTION REQUEST ===")
     try:
+        # Validate input
         if not all(k in data for k in ["body_part", "condition", "severity", "age", "user_id"]):
             raise HTTPException(400, "Missing required fields")
 
-        thresholds = get_pain_threshold(data["condition"])
-        weekly_threshold = thresholds["weekly"]
-        pain_key = f"{data['body_part'].lower().replace(' ', '_')}_{data['condition'].lower().replace(' ', '_')}"
-        
         # Get user data
         user_ref = db.collection("users").document(data["user_id"])
-        doc = user_ref.get()
-        doc = db.collection("users").document(data["user_id"]).get()
-        threshold_data = doc.to_dict().get("thresholds", {}).get(pain_key) if doc.exists else None
-        
-        # Handle cleared_at timestamp
-        cleared_at = None
-        expires_at = None
-        is_cleared = False
-        
-        if threshold_data:
-            # Handle cleared_at
-            cleared_at = threshold_data.get('cleared_at')
-            if isinstance(cleared_at, str):
-                cleared_at = datetime.fromisoformat(cleared_at.replace('Z', '+00:00'))
-            elif hasattr(cleared_at, 'timestamp'):
-                cleared_at = cleared_at.replace(tzinfo=timezone.utc)
-            
-            # Handle expires_at
-            expires_at = threshold_data.get('expires_at')
-            if expires_at:
-                if isinstance(expires_at, str):
-                    expires_at = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
-                elif hasattr(expires_at, 'timestamp'):
-                    expires_at = expires_at.replace(tzinfo=timezone.utc)
-            
-            is_cleared = bool(
-                threshold_data.get('cleared') and 
-                cleared_at and 
-                (not expires_at or datetime.now(timezone.utc) < expires_at))
+        doc = await user_ref.get()
+        user_data = doc.to_dict() if doc.exists else {}
 
-        # Filter history
-        filtered_history = []
-        for entry in data.get("history", []):
-            entry_time = None
-            timestamp = entry.get("timestamp")
-            
-            if isinstance(timestamp, str):
-                try:
-                    entry_time = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-                except ValueError:
-                    continue
-            elif hasattr(timestamp, 'timestamp'):
-                entry_time = timestamp.replace(tzinfo=timezone.utc)
-            
-            if entry_time and (not cleared_at or entry_time > cleared_at):
-                filtered_history.append(entry)
-
-        counts = count_recurrences(filtered_history, data["body_part"], data["condition"])
-        weekly_reports = counts["weekly"]
-        monthly_reports = counts["monthly"]
+        # Check if consultation was completed
+        pain_key = f"{data['body_part'].lower().replace(' ', '_')}_{data['condition'].lower().replace(' ', '_')}"
+        threshold_data = user_data.get("thresholds", {}).get(pain_key, {})
         
-        print(f"Final verification:", {
-            'firebase_data': threshold_data,
-            'is_cleared_calc': is_cleared,
-            'current_time': datetime.now(timezone.utc),
-            'expires_valid': expires_at and datetime.now(timezone.utc) < expires_at
-        })
+        is_cleared = threshold_data.get("cleared", False) and \
+                    (not threshold_data.get("expires_at") or \
+                    datetime.now(timezone.utc) < threshold_data.get("expires_at"))
 
-        if weekly_reports >= weekly_threshold and not is_cleared:
+        # Only count recurrences if not cleared
+        if not is_cleared:
+            counts = count_recurrences(
+                data.get("history", []),
+                data["body_part"],
+                data["condition"],
+                threshold_data.get("cleared_at")
+            )
+        else:
+            counts = {'weekly': 0, 'monthly': 0, 'show_monthly': False}
+
+        thresholds = get_pain_threshold(data["condition"])
+        
+        # Prepare response
+        if counts['weekly'] >= thresholds['weekly'] and not is_cleared:
             return {
                 "threshold_crossed": True,
-                "weekly_reports": weekly_reports,
-                "monthly_reports": monthly_reports,
-                "threshold": weekly_threshold,
+                "weekly_reports": counts['weekly'],
+                "monthly_reports": counts['monthly'],
+                "threshold": thresholds['weekly'],
                 "medication": "CONSULT_DOCTOR_FIRST",
-                "is_cleared": is_cleared
+                "is_cleared": False
             }
         else:
             medication, warnings = calculate_dosage(
@@ -204,16 +167,16 @@ async def predict_risk(data: dict):
             return {
                 "medication": medication,
                 "warnings": warnings,
-                "weekly_reports": weekly_reports,
-                "monthly_reports": monthly_reports,
-                "threshold": weekly_threshold,
+                "weekly_reports": counts['weekly'],
+                "monthly_reports": counts['monthly'],
+                "threshold": thresholds['weekly'],
                 "threshold_crossed": False,
                 "is_cleared": is_cleared
             }
-            
+
     except Exception as e:
-        print("Error in prediction:", str(e))
-        raise HTTPException(status_code=400, detail=str(e))
+        print("Prediction error:", str(e))
+        raise HTTPException(400, str(e))
     
 @app.post("/verify-consultation")
 async def verify_consultation(data: dict):
