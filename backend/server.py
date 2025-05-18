@@ -1,93 +1,62 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timedelta, timezone
-from google.cloud import firestore
-from firebase_admin import credentials, firestore, initialize_app
 import os
-import json
-import firebase_admin
 
 app = FastAPI()
-cred = credentials.ApplicationDefault()
 
-# Threshold configurations
-PAIN_THRESHOLDS = {
-    "nerve_pain": {
-        "weekly": 3,
-        "monthly": 10
-    },
-    "muscle_strain": {
-        "weekly": 4, 
-        "monthly": 15
-    },
-    "default": {
-        "weekly": 4,
-        "monthly": 12
-    }
-}
-
-def get_pain_threshold(pain_type):
-    """Get thresholds for specific pain type"""
-    key = pain_type.lower().replace(" ", "_")
-    return PAIN_THRESHOLDS.get(key, PAIN_THRESHOLDS["default"])
-
-def init_firebase():
-    if "RENDER" in os.environ:
-        return credentials.Certificate("firebase-prod.json")
-    else:
-        return credentials.Certificate("firebase-prod.json")
-
-if not firebase_admin._apps:
-    cred = init_firebase()
-firebase_admin.initialize_app(cred)
-db = firestore.client()
 PORT = int(os.getenv("PORT", 10000))
 
-def count_recurrences(history: list, target_body_part: str, target_condition: str, cleared_at: datetime = None) -> dict:
+def count_recurrences(history: list, target_body_part: str, target_condition: str) -> dict:
     now = datetime.now(timezone.utc)
-    weekly = monthly = 0
+    weekly = 0
+    monthly = 0
     first_report_date = None
     
     for entry in history:
-        try:
-            # Handle timestamp conversion
-            entry_time = entry.get('timestamp')
-            if isinstance(entry_time, str):
-                entry_time = datetime.fromisoformat(entry_time.replace('Z', '+00:00'))
-            elif hasattr(entry_time, 'timestamp'):
-                entry_time = entry_time.replace(tzinfo=timezone.utc)
-            else:
-                continue
-                
-            # Skip entries before clearance if exists
-            if cleared_at and entry_time <= cleared_at:
-                continue
-                
-            # Verify entry matches target
-            entry_body = entry.get('body_part') or entry.get('bodyPart')
-            entry_cond = entry.get('condition')
-            if entry_body == target_body_part and entry_cond == target_condition:
-                if not first_report_date or entry_time < first_report_date:
-                    first_report_date = entry_time
-                    
-                if (now - entry_time) <= timedelta(days=7):
-                    weekly += 1
-                if (now - entry_time) <= timedelta(days=30):
-                    monthly += 1
-                    
-        except Exception as e:
-            print(f"Error processing entry: {e}")
+        # Normalize field names
+        body_part = entry.get("body_part") or entry.get("bodyPart")
+        condition = entry.get("condition")
+        timestamp = entry.get("timestamp")
+        
+        if not all([body_part, condition, timestamp]):
             continue
             
+        try:
+            # Handle different timestamp formats
+            if isinstance(timestamp, str):
+                # Handle ISO string (frontend format)
+                entry_time = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+            elif hasattr(timestamp, 'isoformat'):
+                # Already a datetime object (Firestore)
+                entry_time = timestamp.replace(tzinfo=timezone.utc)
+            else:
+                continue
+        except Exception as e:
+            # Log or handle the exception
+            continue
+                
+        if body_part == target_body_part and condition == target_condition:
+            if not first_report_date or entry_time < first_report_date:
+                first_report_date = entry_time
+                
+            if (now - entry_time) <= timedelta(days=7):
+                weekly += 1
+            if (now - entry_time) <= timedelta(days=30):
+                monthly += 1
+                
+    days_since_first_report = (now - first_report_date).days if first_report_date else 0
+    
     return {
-        'weekly': weekly,
-        'monthly': monthly,
-        'show_monthly': (now - first_report_date).days >= 7 if first_report_date else False
+        "weekly": weekly,
+        "monthly": monthly,
+        "show_monthly": days_since_first_report >= 7,  # New flag
+        "first_report_days_ago": days_since_first_report
     }
-
 def calculate_dosage(condition, age, weight_kg=None, existing_conditions=[]):
     warnings = []
     
+    # Nerve Pain Logic
     if condition == "Nerve Pain":
         if age < 18:
             return "Consult pediatric neurologist", ["Not approved for patients under 18"]
@@ -98,6 +67,8 @@ def calculate_dosage(condition, age, weight_kg=None, existing_conditions=[]):
             return msg, warnings
         else:
             return "Gabapentin 100mg 3x daily", warnings
+
+    # Muscle Strain Logic
     elif condition == "Muscle Strain":
         if age < 12:
             dosage = f"Acetaminophen {15*(weight_kg or 10)}mg every 6h" if weight_kg else "Acetaminophen 15mg/kg"
@@ -110,105 +81,86 @@ def calculate_dosage(condition, age, weight_kg=None, existing_conditions=[]):
 
     return "Consult doctor", []
 
+# API Endpoints
 @app.get("/")
 async def root():
     return {"message": "AI Server is running"}
 
 @app.post("/predict")
 async def predict_risk(data: dict):
+    # Input validation
+    required_fields = ["body_part", "condition", "severity", "age"]
+    for field in required_fields:
+        if field not in data:
+            raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
+
+    # Set defaults
+    data["history"] = data.get("history", [])
+    data["existing_conditions"] = data.get("existing_conditions", [])
+
     try:
-        if not all(k in data for k in ["body_part", "condition", "severity", "age", "user_id"]):
-            raise HTTPException(400, "Missing required fields")
+        # Define thresholds
+        emergency_thresholds = {
+            "Nerve Pain": 3,
+            "Muscle Strain": 4
+        }
+        emergency_threshold = emergency_thresholds.get(data["condition"], 3)
 
-        # PROPERLY handle Firestore async get
-        doc_ref = db.collection("users").document(data["user_id"])
-        doc = doc_ref.get()  # Regular get() instead of await
+        # Calculate recurrence
+        counts = count_recurrences(
+            data["history"],
+            data["body_part"],
+            data["condition"]
+        )
+
+        # Dynamic scoring
+        base_score = data["severity"] * 10
+        age = int(data["age"])
         
-        if not doc.exists:
-            user_data = {}
-        else:
-            user_data = doc.to_dict()
-
-        pain_key = f"{data['body_part'].lower().replace(' ', '_')}_{data['condition'].lower().replace(' ', '_')}"
-        threshold_data = user_data.get("thresholds", {}).get(pain_key, {})
+        # Age multipliers
+        if age < 12: base_score *= 1.3
+        elif age > 65: base_score *= 1.4
         
-        # Check if consultation is still valid
-        is_cleared = False
-        if threshold_data.get("cleared"):
-            expires_at = threshold_data.get("expires_at")
-            if isinstance(expires_at, str):
-                expires_at = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
-            is_cleared = not expires_at or datetime.now(timezone.utc) < expires_at
+        # Condition multipliers
+        if data["condition"] == "Nerve Pain": base_score *= 1.5
+        elif data["condition"] == "Muscle Strain": base_score *= 1.2
 
-        # Count logic
-        if not is_cleared:
-            counts = count_recurrences(
-                data.get("history", []),
-                data["body_part"],
-                data["condition"],
-                threshold_data.get("cleared_at")
-            )
-        else:
-            counts = {'weekly': 0, 'monthly': 0, 'show_monthly': False}
-
-        thresholds = get_pain_threshold(data["condition"])
-        
-        if counts['weekly'] >= thresholds['weekly'] and not is_cleared:
-            return {
-                "threshold_crossed": True,
-                "weekly_reports": counts['weekly'],
-                "monthly_reports": counts['monthly'],
-                "threshold": thresholds['weekly'],
-                "medication": "CONSULT_DOCTOR_FIRST",
-                "is_cleared": False
-            }
-        else:
+        # Emergency check
+        if counts["weekly"] >= emergency_threshold:
             medication, warnings = calculate_dosage(
                 data["condition"],
-                data["age"],
+                age,
                 data.get("weight"),
-                data.get("existing_conditions", [])
+                data["existing_conditions"]
             )
             return {
-                "medication": medication,
-                "warnings": warnings,
-                "weekly_reports": counts['weekly'],
-                "monthly_reports": counts['monthly'],
-                "threshold": thresholds['weekly'],
-                "threshold_crossed": False,
-                "is_cleared": is_cleared
-            }
-
-    except Exception as e:
-        print("Prediction error:", str(e))
-        raise HTTPException(400, str(e))
-    
-@app.post("/verify-consultation")
-async def verify_consultation(data: dict):
-    try:
-        if "user_id" not in data or "pain_type" not in data or "body_part" not in data:
-            raise HTTPException(status_code=400, detail="Missing required fields")
-        
-        pain_key = f"{data['body_part'].lower().replace(' ', '_')}_{data['pain_type'].lower().replace(' ', '_')}"
-        expires_at = datetime.now(timezone.utc) + timedelta(days=30)
-        
-        db.collection("users").document(data["user_id"]).update({
-            f"thresholds.{pain_key}": {
-                "cleared": True,
-                "cleared_at": firestore.SERVER_TIMESTAMP,
-                "expires_at": expires_at
-            }
-        })
-        
+        "risk_score": 100,
+        "advice": f"🚨 EMERGENCY: {data['condition']} occurred {counts['weekly']}x this week",
+        "medication": "CONSULT DOCTOR IMMEDIATELY - DO NOT SELF-MEDICATE",  # Critical change
+        "warnings": ["Stop all current medications until examined"],
+        "threshold_crossed": True,  # New flag
+        "reports_this_week": counts["weekly"],  # Add count
+        "threshold_limit": emergency_threshold  # Add threshold
+    }
+        # Standard response
+        medication, warnings = calculate_dosage(
+            data["condition"],
+            age,
+            data.get("weight"),
+            data["existing_conditions"]
+        )
         return {
-            "status": "success",
-            "expires_at": expires_at.isoformat()
+            "risk_score": min(100, base_score),
+            "advice": "Medication advised" if base_score >= 50 else "Home care recommended",
+            "medication": medication,
+            "warnings": warnings,
+            "timeframe": "week_warning" if counts["weekly"] > 0 else "new"
         }
-        
-    except Exception as e:
-        print(f"Consultation error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
 
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# CORS Setup
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -219,4 +171,4 @@ app.add_middleware(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+    uvicorn.run(app, host="0.0.0.0", port=PORT)  
