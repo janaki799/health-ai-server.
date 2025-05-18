@@ -117,24 +117,30 @@ async def root():
 @app.post("/predict")
 async def predict_risk(data: dict):
     try:
-        # Validate input
         if not all(k in data for k in ["body_part", "condition", "severity", "age", "user_id"]):
             raise HTTPException(400, "Missing required fields")
 
-        # Get user data
-        user_ref = db.collection("users").document(data["user_id"])
-        doc = await user_ref.get()
-        user_data = doc.to_dict() if doc.exists else {}
+        # PROPERLY handle Firestore async get
+        doc_ref = db.collection("users").document(data["user_id"])
+        doc = doc_ref.get()  # Regular get() instead of await
+        
+        if not doc.exists:
+            user_data = {}
+        else:
+            user_data = doc.to_dict()
 
-        # Check if consultation was completed
         pain_key = f"{data['body_part'].lower().replace(' ', '_')}_{data['condition'].lower().replace(' ', '_')}"
         threshold_data = user_data.get("thresholds", {}).get(pain_key, {})
         
-        is_cleared = threshold_data.get("cleared", False) and \
-                    (not threshold_data.get("expires_at") or \
-                    datetime.now(timezone.utc) < threshold_data.get("expires_at"))
+        # Check if consultation is still valid
+        is_cleared = False
+        if threshold_data.get("cleared"):
+            expires_at = threshold_data.get("expires_at")
+            if isinstance(expires_at, str):
+                expires_at = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+            is_cleared = not expires_at or datetime.now(timezone.utc) < expires_at
 
-        # Only count recurrences if not cleared
+        # Count logic
         if not is_cleared:
             counts = count_recurrences(
                 data.get("history", []),
@@ -147,7 +153,6 @@ async def predict_risk(data: dict):
 
         thresholds = get_pain_threshold(data["condition"])
         
-        # Prepare response
         if counts['weekly'] >= thresholds['weekly'] and not is_cleared:
             return {
                 "threshold_crossed": True,
