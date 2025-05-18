@@ -59,7 +59,7 @@ def count_recurrences(history: list, target_body_part: str, target_condition: st
             else:
                 continue
                 
-            # Skip pre-consultation entries
+            # Skip entries before clearance if exists
             if cleared_at and entry_time <= cleared_at:
                 continue
                 
