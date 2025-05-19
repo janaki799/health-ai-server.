@@ -109,7 +109,6 @@ async def predict_risk(data: dict):
         # Calculate recurrence
         counts = count_recurrences(
             filtered_history,
-            data["history"],
             data["body_part"],
             data["condition"]
         )
