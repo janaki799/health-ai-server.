@@ -39,6 +39,7 @@ async def reset_threshold(request: Request):
 def count_recurrences(history: list, target_body_part: str, target_condition: str, user_id: str) -> dict:
     key = f"{user_id}_{target_body_part}_{target_condition}"
     reset_data = threshold_resets.get(key, {})
+    reset_time = reset_data.get("reset_at") if reset_data else None
 
     now = datetime.now(timezone.utc)
     weekly = 0
@@ -69,7 +70,7 @@ def count_recurrences(history: list, target_body_part: str, target_condition: st
                 continue
                 
             # Skip entries before reset if reset exists
-            if reset_data and entry_time <= reset_data.get("reset_at", now):
+            if reset_time and entry_time <= reset_time:
                 continue
                 
             if body_part == target_body_part and condition == target_condition:
