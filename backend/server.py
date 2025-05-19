@@ -2,17 +2,43 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timedelta, timezone
 from fastapi import Request
+from typing import Dict, Any
 import os
 
 app = FastAPI()
 
 PORT = int(os.getenv("PORT", 10000))
 
-def count_recurrences(history: list, target_body_part: str, target_condition: str) -> dict:
+threshold_resets: Dict[str, Dict[str, Any]] = {}
+
+@app.post("/reset-threshold")
+async def reset_threshold(request: Request):
+    data = await request.json()
+    user_id = data.get("userId")
+    body_part = data.get("bodyPart")
+    condition = data.get("condition")
+
+    if not all([user_id, body_part, condition]):
+        raise HTTPException(status_code=400, detail="Missing required fields")
+
+    # Store the reset timestamp
+    key = f"{user_id}_{body_part}_{condition}"
+    threshold_resets[key] = {
+        "reset_at": datetime.now(timezone.utc),
+        "count": 0
+    }
+
+    return {
+        "success": True,
+        "reset_at": threshold_resets[key]["reset_at"].isoformat()
+    }
+def count_recurrences(history: list, target_body_part: str, target_condition: str, user_id: str) -> dict:
+    key = f"{user_id}_{target_body_part}_{target_condition}"
+    reset_data = threshold_resets.get(key, {})
     now = datetime.now(timezone.utc)
     weekly = 0
     monthly = 0
-    first_report_date = None
+    
     
     for entry in history:
         # Normalize field names
@@ -42,17 +68,18 @@ def count_recurrences(history: list, target_body_part: str, target_condition: st
                 first_report_date = entry_time
                 
             if (now - entry_time) <= timedelta(days=7):
-                weekly += 1
+                if not reset_data or entry_time > reset_data["reset_at"]:
+                  weekly += 1
             if (now - entry_time) <= timedelta(days=30):
-                monthly += 1
+                if not reset_data or entry_time > reset_data["reset_at"]:
+                  monthly += 1
                 
     days_since_first_report = (now - first_report_date).days if first_report_date else 0
     
     return {
         "weekly": weekly,
         "monthly": monthly,
-        "show_monthly": days_since_first_report >= 7,  # New flag
-        "first_report_days_ago": days_since_first_report
+        "was_reset": bool(reset_data)
     }
 def calculate_dosage(condition, age, weight_kg=None, existing_conditions=[]):
     warnings = []
@@ -166,22 +193,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-@app.post("/reset-threshold")
-async def reset_threshold(request: Request):
-    data = await request.json()
-    user_id = data.get("userId")
-    body_part = data.get("bodyPart")
-    condition = data.get("condition")
 
-    if not all([user_id, body_part, condition]):
-        raise HTTPException(status_code=400, detail="Missing required fields")
-
-    # In a real app, you'd store this in a database
-    # For now, we'll just return a success message
-    return {
-        "success": True,
-        "message": f"Threshold reset for {condition} on {body_part}"
-    }
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=PORT)  
