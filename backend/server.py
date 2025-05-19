@@ -30,12 +30,15 @@ async def reset_threshold(request: Request):
 
     return {
         "success": True,
-        "reset_at": threshold_resets[key]["reset_at"].isoformat()
+        "reset_at": threshold_resets[key]["reset_at"].isoformat(),
+        "new_count": 0
+
     }
 
 def count_recurrences(history: list, target_body_part: str, target_condition: str, user_id: str) -> dict:
     key = f"{user_id}_{target_body_part}_{target_condition}"
     reset_data = threshold_resets.get(key, {})
+
     now = datetime.now(timezone.utc)
     weekly = 0
     monthly = 0
@@ -60,14 +63,13 @@ def count_recurrences(history: list, target_body_part: str, target_condition: st
             continue
                 
         if body_part == target_body_part and condition == target_condition:
+         if not reset_data or entry_time > reset_data["reset_at"]:
             if not first_report_date or entry_time < first_report_date:
                 first_report_date = entry_time
                 
             if (now - entry_time) <= timedelta(days=7):
-                if not reset_data or entry_time > reset_data["reset_at"]:
                     weekly += 1
             if (now - entry_time) <= timedelta(days=30):
-                if not reset_data or entry_time > reset_data["reset_at"]:
                     monthly += 1
                 
     days_since_first_report = (now - first_report_date).days if first_report_date else 0
@@ -75,7 +77,9 @@ def count_recurrences(history: list, target_body_part: str, target_condition: st
     return {
         "weekly": weekly,
         "monthly": monthly,
-        "was_reset": bool(reset_data)
+        "was_reset": bool(reset_data),
+        "first_report_days_ago": days_since_first_report,
+        "show_monthly": days_since_first_report >= 7
     }
 
 def calculate_dosage(condition, age, weight_kg=None, existing_conditions=[]):
