@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timedelta, timezone
+from fastapi import Request
 import os
 
 app = FastAPI()
@@ -168,7 +169,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+@app.post("/reset-threshold")
+async def reset_threshold(request: Request):
+    data = await request.json()
+    user_id = data.get("userId")
+    body_part = data.get("bodyPart")
+    condition = data.get("condition")
 
+    if not all([user_id, body_part, condition]):
+        raise HTTPException(status_code=400, detail="Missing required fields")
+
+    # In a real app, you'd store this in a database
+    # For now, we'll just return a success message
+    return {
+        "success": True,
+        "message": f"Threshold reset for {condition} on {body_part}"
+    }
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=PORT)  
