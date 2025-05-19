@@ -132,6 +132,7 @@ async def predict_risk(request: Request):
         data.setdefault("has_consulted_doctor", False)
         data.setdefault("weight", None)
         data.setdefault("userId", "anonymous")
+        data.setdefault("age", 30)  # Default age if not provided
         
         # Validate required fields
         required_fields = ["body_part", "condition", "severity"]
@@ -141,10 +142,6 @@ async def predict_risk(request: Request):
                     status_code=400, 
                     detail=f"Missing required field: {field}"
                 )
-        
-        # Set default age if not provided
-        if "age" not in data:
-            data["age"] = 30
             
         # Validate history entries
         for entry in data["history"]:
@@ -153,12 +150,14 @@ async def predict_risk(request: Request):
             entry.setdefault("severity", 0)
             entry.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
 
+        # Set thresholds
         emergency_thresholds = {
             "Nerve Pain": 3,
             "Muscle Strain": 4
         }
         emergency_threshold = emergency_thresholds.get(data["condition"], 3)
 
+        # Get counts (this now properly handles resets)
         counts = count_recurrences(
             data["history"],
             data["body_part"],
@@ -166,42 +165,61 @@ async def predict_risk(request: Request):
             data["userId"]
         )
 
+        # Calculate base risk score
         base_score = data["severity"] * 10
         age = int(data["age"])
         
+        # Apply modifiers
         if age < 12: base_score *= 1.3
         elif age > 65: base_score *= 1.4
         
         if data["condition"] == "Nerve Pain": base_score *= 1.5
         elif data["condition"] == "Muscle Strain": base_score *= 1.2
 
-        if counts["weekly"] >= emergency_threshold and not data.get("has_consulted_doctor"):
-            return {
-                "risk_score": 100,
+        # Prepare base response
+        response = {
+            "risk_score": min(100, base_score),
+            "reports_this_week": counts["weekly"],
+            "reports_this_month": counts["monthly"],
+            "threshold_limit": emergency_threshold,
+            "threshold_crossed": counts["weekly"] >= emergency_threshold,
+            "was_reset": counts["was_reset"],
+            "show_monthly": counts["show_monthly"]
+        }
+
+        # Emergency case
+        if response["threshold_crossed"] and not data["has_consulted_doctor"]:
+            response.update({
                 "advice": f"🚨 EMERGENCY: {data['condition']} occurred {counts['weekly']}x this week",
                 "medication": "CONSULT DOCTOR IMMEDIATELY - DO NOT SELF-MEDICATE",
-                "warnings": ["Stop all current medications until examined"],
-                "threshold_crossed": True,
-                "reports_this_week": counts["weekly"],
-                "threshold_limit": emergency_threshold
-            }
+                "warnings": ["Stop all current medications until examined"]
+            })
+            return response
 
+        # Normal case - get medication recommendations
         medication, warnings = calculate_dosage(
             data["condition"],
             age,
             data.get("weight"),
             data["existing_conditions"]
         )
-        
-        return {
-            "risk_score": min(100, base_score),
+
+        response.update({
             "advice": "Medication advised" if base_score >= 50 else "Home care recommended",
             "medication": medication,
             "warnings": warnings,
-            "timeframe": "week_warning" if counts["weekly"] > 0 else "new",
-            "threshold_crossed": False,
-            "override_threshold": data.get("has_consulted_doctor", False)
-        }
+            "threshold_warning": counts["weekly"] >= emergency_threshold - 1
+        })
+
+        # If user has consulted doctor, ensure UI shows proper count
+        if data["has_consulted_doctor"]:
+            response.update({
+                "reports_this_week": 1,
+                "threshold_crossed": False,
+                "threshold_warning": False
+            })
+
+        return response
 
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
@@ -215,6 +233,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "version": "1.0.0"}
 
 if __name__ == "__main__":
     import uvicorn
