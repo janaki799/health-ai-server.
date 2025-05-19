@@ -127,13 +127,7 @@ async def predict_risk(data: dict):
         elif data["condition"] == "Muscle Strain": base_score *= 1.2
 
         # Emergency check
-        if counts["weekly"] >= emergency_threshold:
-            medication, warnings = calculate_dosage(
-                data["condition"],
-                age,
-                data.get("weight"),
-                data["existing_conditions"]
-            )
+        if counts["weekly"] >= emergency_threshold and not data.get("has_consulted_doctor"):
             return {
         "risk_score": 100,
         "advice": f"🚨 EMERGENCY: {data['condition']} occurred {counts['weekly']}x this week",
@@ -155,7 +149,8 @@ async def predict_risk(data: dict):
             "advice": "Medication advised" if base_score >= 50 else "Home care recommended",
             "medication": medication,
             "warnings": warnings,
-            "timeframe": "week_warning" if counts["weekly"] > 0 else "new"
+            "timeframe": "week_warning" if counts["weekly"] > 0 else "new",
+            "threshold_crossed": False
         }
 
     except Exception as e:
