@@ -105,9 +105,10 @@ async def predict_risk(data: dict):
             "Muscle Strain": 4
         }
         emergency_threshold = emergency_thresholds.get(data["condition"], 3)
-
+        filtered_history = [entry for entry in data["history"] if entry.get("counted", True)]
         # Calculate recurrence
         counts = count_recurrences(
+            filtered_history,
             data["history"],
             data["body_part"],
             data["condition"]
