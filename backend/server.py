@@ -144,12 +144,16 @@ async def predict_risk(data: dict):
             data["existing_conditions"]
         )
         return {
-            "risk_score": min(100, base_score),
-            "advice": "Medication advised" if base_score >= 50 else "Home care recommended",
-            "medication": medication,
-            "warnings": warnings,
-            "timeframe": "week_warning" if counts["weekly"] > 0 else "new"
-        }
+    "risk_score": min(100, base_score),
+    "advice": "Medication advised" if base_score >= 50 else "Home care recommended",
+    "medication": medication,
+    "warnings": warnings,
+    "threshold_crossed": False,  # Explicitly set this
+    "reports_this_week": counts["weekly"],
+    "threshold_limit": emergency_threshold,
+    "show_monthly": counts["show_monthly"],
+    "reports_this_month": counts["monthly"]
+}
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
