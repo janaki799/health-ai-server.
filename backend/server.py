@@ -144,14 +144,16 @@ async def predict_risk(data: dict):
             data.get("weight"),
             data["existing_conditions"]
         )
+        # In the /predict endpoint, modify the standard response:
         return {
-            "risk_score": min(100, base_score),
-            "advice": "Medication advised" if base_score >= 50 else "Home care recommended",
-            "medication": medication,
-            "warnings": warnings,
-            "timeframe": "week_warning" if counts["weekly"] > 0 else "new",
-            "threshold_crossed": False
-        }
+    "risk_score": min(100, base_score),
+    "advice": "Medication advised" if base_score >= 50 else "Home care recommended",
+    "medication": medication,
+    "warnings": warnings,
+    "timeframe": "week_warning" if counts["weekly"] > 0 else "new",
+    "threshold_crossed": False,
+    "override_threshold": data.get("has_consulted_doctor", False)  # New flag
+}
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
