@@ -37,14 +37,14 @@ async def reset_threshold(request: Request):
 
 # Modify the count_recurrences function:
 def count_recurrences(history: list, target_body_part: str, target_condition: str, user_id: str) -> dict:
-    key = f"{user_id}_{target_body_part}_{target_condition}"
-    reset_data = threshold_resets.get(key, {})
-    reset_time = reset_data.get("reset_at") if reset_data else None
-
     now = datetime.now(timezone.utc)
     weekly = 0
     monthly = 0
     first_report_date = None
+    
+    # Get reset time if exists
+    reset_key = f"{user_id}_{target_body_part}_{target_condition}"
+    reset_time = threshold_resets.get(reset_key, {}).get("reset_at")
     
     # Sort history by timestamp (newest first)
     sorted_history = sorted(
@@ -90,9 +90,8 @@ def count_recurrences(history: list, target_body_part: str, target_condition: st
     return {
         "weekly": weekly,
         "monthly": monthly,
-        "was_reset": bool(reset_data),
-        "first_report_days_ago": days_since_first_report,
-        "show_monthly": days_since_first_report >= 7
+        "show_monthly": days_since_first_report >= 7,
+        "was_reset": bool(reset_time)
     }
 
 def calculate_dosage(condition, age, weight_kg=None, existing_conditions=[]):
