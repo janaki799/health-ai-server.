@@ -14,6 +14,8 @@ def count_recurrences(history: list, target_body_part: str, target_condition: st
     first_report_date = None
     
     for entry in history:
+        if entry.get("counted") is False:
+            continue
         # Normalize field names
         body_part = entry.get("body_part") or entry.get("bodyPart")
         condition = entry.get("condition")
