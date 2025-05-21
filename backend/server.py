@@ -14,8 +14,6 @@ def count_recurrences(history: list, target_body_part: str, target_condition: st
     first_report_date = None
     
     for entry in history:
-        if entry.get("counted") is False:
-            continue
         # Normalize field names
         body_part = entry.get("body_part") or entry.get("bodyPart")
         condition = entry.get("condition")
@@ -128,16 +126,22 @@ async def predict_risk(data: dict):
         elif data["condition"] == "Muscle Strain": base_score *= 1.2
 
         # Emergency check
-        if counts["weekly"] >= emergency_threshold and not data.get("has_consulted_doctor", False):
+        if counts["weekly"] >= emergency_threshold:
+            medication, warnings = calculate_dosage(
+                data["condition"],
+                age,
+                data.get("weight"),
+                data["existing_conditions"]
+            )
             return {
-                "risk_score": 100,
-                "advice": f"🚨 EMERGENCY: {data['condition']} occurred {counts['weekly']}x this week",
-                "medication": "CONSULT DOCTOR IMMEDIATELY - DO NOT SELF-MEDICATE",
-                "warnings": ["Stop all current medications until examined"],
-                "threshold_crossed": True,
-                "reports_this_week": counts["weekly"],
-                "threshold_limit": emergency_threshold
-            }
+        "risk_score": 100,
+        "advice": f"🚨 EMERGENCY: {data['condition']} occurred {counts['weekly']}x this week",
+        "medication": "CONSULT DOCTOR IMMEDIATELY - DO NOT SELF-MEDICATE",  # Critical change
+        "warnings": ["Stop all current medications until examined"],
+        "threshold_crossed": True,  # New flag
+        "reports_this_week": counts["weekly"],  # Add count
+        "threshold_limit": emergency_threshold  # Add threshold
+    }
         # Standard response
         medication, warnings = calculate_dosage(
             data["condition"],
@@ -146,16 +150,12 @@ async def predict_risk(data: dict):
             data["existing_conditions"]
         )
         return {
-    "risk_score": min(100, base_score),
-    "advice": "Medication advised" if base_score >= 50 else "Home care recommended",
-    "medication": medication,
-    "warnings": warnings,
-    "threshold_crossed": False,  # Explicitly set this
-    "reports_this_week": counts["weekly"],
-    "threshold_limit": emergency_threshold,
-    "show_monthly": counts["show_monthly"],
-    "reports_this_month": counts["monthly"]
-}
+            "risk_score": min(100, base_score),
+            "advice": "Medication advised" if base_score >= 50 else "Home care recommended",
+            "medication": medication,
+            "warnings": warnings,
+            "timeframe": "week_warning" if counts["weekly"] > 0 else "new"
+        }
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
