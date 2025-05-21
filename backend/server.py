@@ -85,7 +85,19 @@ def calculate_dosage(condition, age, weight_kg=None, existing_conditions=[]):
 @app.get("/")
 async def root():
     return {"message": "AI Server is running"}
-
+# Add this new endpoint to server.py
+@app.post("/reset_count")
+async def reset_count(data: dict):
+    try:
+        # This endpoint just acknowledges the reset
+        # Actual count reset happens in frontend state
+        return {
+            "status": "success",
+            "message": "Count reset acknowledged"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
 @app.post("/predict")
 async def predict_risk(data: dict):
     # Input validation
