@@ -7,17 +7,26 @@ app = FastAPI()
 
 PORT = int(os.getenv("PORT", 10000))
 
+# Modify the count_recurrences function in server.py
+# Replace the existing count_recurrences function with this:
 def count_recurrences(history: list, target_body_part: str, target_condition: str) -> dict:
     now = datetime.now(timezone.utc)
     weekly = 0
     monthly = 0
-    first_report_date = None
     last_consultation_date = None
     
+    # First pass to find the most recent consultation
     for entry in history:
-        # Skip if this entry was marked as consulted
         if entry.get("consultedDoctor", False):
-            last_consultation_date = entry.get("timestamp")
+            entry_time = entry.get("timestamp")
+            if isinstance(entry_time, str):
+                entry_time = datetime.fromisoformat(entry_time.replace('Z', '+00:00'))
+            if not last_consultation_date or entry_time > last_consultation_date:
+                last_consultation_date = entry_time
+    
+    # Second pass to count occurrences since last consultation
+    for entry in history:
+        if entry.get("consultedDoctor", False):
             continue
             
         body_part = entry.get("body_part") or entry.get("bodyPart")
@@ -37,25 +46,19 @@ def count_recurrences(history: list, target_body_part: str, target_condition: st
         except Exception as e:
             continue
                 
-        if body_part == target_body_part and condition == target_condition:
-            if not first_report_date or entry_time < first_report_date:
-                first_report_date = entry_time
+        if (body_part == target_body_part and 
+            condition == target_condition and
+            (last_consultation_date is None or entry_time > last_consultation_date)):
+            
+            if (now - entry_time) <= timedelta(days=7):
+                weekly += 1
+            if (now - entry_time) <= timedelta(days=30):
+                monthly += 1
                 
-            # Only count entries after last consultation (if any)
-            if not last_consultation_date or entry_time > last_consultation_date:
-                if (now - entry_time) <= timedelta(days=7):
-                    weekly += 1
-                if (now - entry_time) <= timedelta(days=30):
-                    monthly += 1
-                    
-    days_since_first_report = (now - first_report_date).days if first_report_date else 0
-    
     return {
         "weekly": weekly,
         "monthly": monthly,
-        "show_monthly": days_since_first_report >= 7,
-        "first_report_days_ago": days_since_first_report,
-        "has_consulted": bool(last_consultation_date)
+        "has_consulted": last_consultation_date is not None
     }
 
 def calculate_dosage(condition, age, weight_kg=None, existing_conditions=[]):
