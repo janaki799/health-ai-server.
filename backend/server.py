@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timedelta, timezone
 from dateutil.parser import parse
@@ -107,7 +107,12 @@ async def root():
     return {"message": "AI Server is running"}
 
 @app.post("/predict")
-async def predict_risk(data: dict):
+async def predict_risk(request: Request, response: Response):
+
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "POST"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    data = await request.json()
     # Input validation
     required_fields = ["body_part", "condition", "severity", "age"]
     for field in required_fields:
