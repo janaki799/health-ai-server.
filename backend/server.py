@@ -105,8 +105,7 @@ async def predict_risk(data: dict):
             "Muscle Strain": 4
         }
         emergency_threshold = emergency_thresholds.get(data["condition"], 3)
-        
-        has_consulted = data.get("has_consulted", False)
+
         # Calculate recurrence
         counts = count_recurrences(
             data["history"],
@@ -125,20 +124,24 @@ async def predict_risk(data: dict):
         # Condition multipliers
         if data["condition"] == "Nerve Pain": base_score *= 1.5
         elif data["condition"] == "Muscle Strain": base_score *= 1.2
-         # If user has consulted, reset weekly count but keep history
-        effective_weekly = 1 if has_consulted else counts["weekly"]
+
         # Emergency check
-        if effective_weekly >= emergency_threshold:
+        if counts["weekly"] >= emergency_threshold:
+            medication, warnings = calculate_dosage(
+                data["condition"],
+                age,
+                data.get("weight"),
+                data["existing_conditions"]
+            )
             return {
-                "risk_score": 100,
-                "advice": f"🚨 EMERGENCY: {data['condition']} occurred {counts['weekly']}x this week",
-                "medication": "CONSULT DOCTOR IMMEDIATELY - DO NOT SELF-MEDICATE",
-                "warnings": ["Stop all current medications until examined"],
-                "threshold_crossed": True,
-                "reports_this_week": counts["weekly"],  # Show actual count
-                "threshold_limit": emergency_threshold,
-                "show_consulted_button": not has_consulted  # New flag
-            }
+        "risk_score": 100,
+        "advice": f"🚨 EMERGENCY: {data['condition']} occurred {counts['weekly']}x this week",
+        "medication": "CONSULT DOCTOR IMMEDIATELY - DO NOT SELF-MEDICATE",  # Critical change
+        "warnings": ["Stop all current medications until examined"],
+        "threshold_crossed": True,  # New flag
+        "reports_this_week": counts["weekly"],  # Add count
+        "threshold_limit": emergency_threshold  # Add threshold
+    }
         # Standard response
         medication, warnings = calculate_dosage(
             data["condition"],
@@ -168,4 +171,4 @@ app.add_middleware(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=PORT)  
+    uvicorn.run(app, host="0.0.0.0", port=PORT)    
