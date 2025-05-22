@@ -1,11 +1,20 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timedelta, timezone
+from dateutil.parser import parse
 import os
 
 app = FastAPI()
 
 PORT = int(os.getenv("PORT", 10000))
+
+def parse_timestamp(timestamp):
+    """Handle both string and Firestore timestamp formats"""
+    if isinstance(timestamp, str):
+        return datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+    elif hasattr(timestamp, 'isoformat'):
+        return timestamp.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc)
 
 def count_recurrences(history: list, target_body_part: str, target_condition: str) -> dict:
     now = datetime.now(timezone.utc)
@@ -15,7 +24,16 @@ def count_recurrences(history: list, target_body_part: str, target_condition: st
     
     for entry in history:
         if entry.get("consulted"):
+            entry_time = parse_timestamp(entry["timestamp"])
+            if not last_consulted_date or entry_time > last_consulted_date:
+                last_consulted_date = entry_time
             continue
+                
+        # Only count entries AFTER last consultation
+        if last_consulted_date:
+            entry_time = parse_timestamp(entry["timestamp"])
+            if entry_time <= last_consulted_date:
+                continue
         # Normalize field names
         body_part = entry.get("body_part") or entry.get("bodyPart")
         condition = entry.get("condition")
@@ -95,7 +113,7 @@ async def predict_risk(data: dict):
     for field in required_fields:
         if field not in data:
             raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
-    
+    Response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     # Set defaults
     data["history"] = data.get("history", [])
     data["existing_conditions"] = data.get("existing_conditions", [])
