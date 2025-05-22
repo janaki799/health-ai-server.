@@ -7,28 +7,16 @@ app = FastAPI()
 
 PORT = int(os.getenv("PORT", 10000))
 
-# Modify the count_recurrences function in server.py
-# Replace the existing count_recurrences function with this:
 def count_recurrences(history: list, target_body_part: str, target_condition: str) -> dict:
     now = datetime.now(timezone.utc)
     weekly = 0
     monthly = 0
-    last_consultation_date = None
+    first_report_date = None
     
-    # First pass to find the most recent consultation
     for entry in history:
-        if entry.get("consultedDoctor", False):
-            entry_time = entry.get("timestamp")
-            if isinstance(entry_time, str):
-                entry_time = datetime.fromisoformat(entry_time.replace('Z', '+00:00'))
-            if not last_consultation_date or entry_time > last_consultation_date:
-                last_consultation_date = entry_time
-    
-    # Second pass to count occurrences since last consultation
-    for entry in history:
-        if entry.get("consultedDoctor", False):
+        if entry.get("consulted"):
             continue
-            
+        # Normalize field names
         body_part = entry.get("body_part") or entry.get("bodyPart")
         condition = entry.get("condition")
         timestamp = entry.get("timestamp")
@@ -37,33 +25,40 @@ def count_recurrences(history: list, target_body_part: str, target_condition: st
             continue
             
         try:
+            # Handle different timestamp formats
             if isinstance(timestamp, str):
+                # Handle ISO string (frontend format)
                 entry_time = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
             elif hasattr(timestamp, 'isoformat'):
+                # Already a datetime object (Firestore)
                 entry_time = timestamp.replace(tzinfo=timezone.utc)
             else:
                 continue
         except Exception as e:
+            # Log or handle the exception
             continue
                 
-        if (body_part == target_body_part and 
-            condition == target_condition and
-            (last_consultation_date is None or entry_time > last_consultation_date)):
-            
+        if body_part == target_body_part and condition == target_condition:
+            if not first_report_date or entry_time < first_report_date:
+                first_report_date = entry_time
+                
             if (now - entry_time) <= timedelta(days=7):
                 weekly += 1
             if (now - entry_time) <= timedelta(days=30):
                 monthly += 1
                 
+    days_since_first_report = (now - first_report_date).days if first_report_date else 0
+    
     return {
         "weekly": weekly,
         "monthly": monthly,
-        "has_consulted": last_consultation_date is not None
+        "show_monthly": days_since_first_report >= 7,  # New flag
+        "first_report_days_ago": days_since_first_report
     }
-
 def calculate_dosage(condition, age, weight_kg=None, existing_conditions=[]):
     warnings = []
     
+    # Nerve Pain Logic
     if condition == "Nerve Pain":
         if age < 18:
             return "Consult pediatric neurologist", ["Not approved for patients under 18"]
@@ -75,6 +70,7 @@ def calculate_dosage(condition, age, weight_kg=None, existing_conditions=[]):
         else:
             return "Gabapentin 100mg 3x daily", warnings
 
+    # Muscle Strain Logic
     elif condition == "Muscle Strain":
         if age < 12:
             dosage = f"Acetaminophen {15*(weight_kg or 10)}mg every 6h" if weight_kg else "Acetaminophen 15mg/kg"
@@ -87,42 +83,51 @@ def calculate_dosage(condition, age, weight_kg=None, existing_conditions=[]):
 
     return "Consult doctor", []
 
+# API Endpoints
 @app.get("/")
 async def root():
     return {"message": "AI Server is running"}
 
 @app.post("/predict")
 async def predict_risk(data: dict):
+    # Input validation
     required_fields = ["body_part", "condition", "severity", "age"]
     for field in required_fields:
         if field not in data:
             raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
 
+    # Set defaults
     data["history"] = data.get("history", [])
     data["existing_conditions"] = data.get("existing_conditions", [])
 
     try:
+        # Define thresholds
         emergency_thresholds = {
             "Nerve Pain": 3,
             "Muscle Strain": 4
         }
         emergency_threshold = emergency_thresholds.get(data["condition"], 3)
 
+        # Calculate recurrence
         counts = count_recurrences(
             data["history"],
             data["body_part"],
             data["condition"]
         )
 
+        # Dynamic scoring
         base_score = data["severity"] * 10
         age = int(data["age"])
         
+        # Age multipliers
         if age < 12: base_score *= 1.3
         elif age > 65: base_score *= 1.4
         
+        # Condition multipliers
         if data["condition"] == "Nerve Pain": base_score *= 1.5
         elif data["condition"] == "Muscle Strain": base_score *= 1.2
 
+        # Emergency check
         if counts["weekly"] >= emergency_threshold:
             medication, warnings = calculate_dosage(
                 data["condition"],
@@ -131,16 +136,15 @@ async def predict_risk(data: dict):
                 data["existing_conditions"]
             )
             return {
-                "risk_score": 100,
-                "advice": f"🚨 EMERGENCY: {data['condition']} occurred {counts['weekly']}x this week",
-                "medication": "CONSULT DOCTOR IMMEDIATELY - DO NOT SELF-MEDICATE",
-                "warnings": ["Stop all current medications until examined"],
-                "threshold_crossed": True,
-                "reports_this_week": counts["weekly"],
-                "threshold_limit": emergency_threshold,
-                "has_consulted": counts["has_consulted"]
-            }
-
+        "risk_score": 100,
+        "advice": f"🚨 EMERGENCY: {data['condition']} occurred {counts['weekly']}x this week",
+        "medication": "CONSULT DOCTOR IMMEDIATELY - DO NOT SELF-MEDICATE",  # Critical change
+        "warnings": ["Stop all current medications until examined"],
+        "threshold_crossed": True,  # New flag
+        "reports_this_week": counts["weekly"],  # Add count
+        "threshold_limit": emergency_threshold  # Add threshold
+    }
+        # Standard response
         medication, warnings = calculate_dosage(
             data["condition"],
             age,
@@ -152,14 +156,13 @@ async def predict_risk(data: dict):
             "advice": "Medication advised" if base_score >= 50 else "Home care recommended",
             "medication": medication,
             "warnings": warnings,
-            "threshold_crossed": False,
-            "reports_this_week": counts["weekly"],
-            "has_consulted": counts["has_consulted"]
+            "timeframe": "week_warning" if counts["weekly"] > 0 else "new"
         }
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+# CORS Setup
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -170,4 +173,4 @@ app.add_middleware(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+    uvicorn.run(app, host="0.0.0.0", port=PORT)    
