@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timedelta, timezone
+from fastapi import Response
 import os
 
 app = FastAPI()
@@ -90,6 +91,7 @@ async def root():
 
 @app.post("/predict")
 async def predict_risk(data: dict):
+    Response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     # Input validation
     required_fields = ["body_part", "condition", "severity", "age"]
     for field in required_fields:
