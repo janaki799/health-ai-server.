@@ -14,8 +14,6 @@ def count_recurrences(history: list, target_body_part: str, target_condition: st
     first_report_date = None
     
     for entry in history:
-        if entry.get("consulted"):
-            continue
         # Normalize field names
         body_part = entry.get("body_part") or entry.get("bodyPart")
         condition = entry.get("condition")
@@ -95,7 +93,7 @@ async def predict_risk(data: dict):
     for field in required_fields:
         if field not in data:
             raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
-    
+
     # Set defaults
     data["history"] = data.get("history", [])
     data["existing_conditions"] = data.get("existing_conditions", [])
@@ -158,8 +156,7 @@ async def predict_risk(data: dict):
             "warnings": warnings,
             "timeframe": "week_warning" if counts["weekly"] > 0 else "new"
         }
-        
-        
+
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -174,4 +171,4 @@ app.add_middleware(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=PORT)    
+    uvicorn.run(app, host="0.0.0.0", port=PORT) 
