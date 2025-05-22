@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timedelta, timezone
 import os
@@ -95,7 +95,7 @@ async def predict_risk(data: dict):
     for field in required_fields:
         if field not in data:
             raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
-    Response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    
     # Set defaults
     data["history"] = data.get("history", [])
     data["existing_conditions"] = data.get("existing_conditions", [])
