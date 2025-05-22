@@ -12,31 +12,14 @@ def count_recurrences(history: list, target_body_part: str, target_condition: st
     now = datetime.now(timezone.utc)
     weekly = 0
     monthly = 0
-    consultation_found = False
+    first_report_date = None
+    last_consultation_date = None
     
-    # Sort by newest first
-    sorted_history = sorted(
-        [h for h in history if h.get("timestamp")],
-        key=lambda x: x["timestamp"],
-        reverse=True
-    )
-    
-    for entry in sorted_history:
-        # Skip entries marked as not counted
-        if entry.get("countedInThreshold") is False:
-            continue
-            
-        # Check for consultation marker
-        if (entry.get("consultedDoctor") or entry.get("resetThreshold")) and \
-           entry.get("body_part") == target_body_part and \
-           entry.get("condition") == target_condition:
-            consultation_found = True
-            break  # Stop counting at last consultation
-            
-        # Normal counting
+    for entry in history:
         body_part = entry.get("body_part") or entry.get("bodyPart")
         condition = entry.get("condition")
         timestamp = entry.get("timestamp")
+        consulted_doctor = entry.get("consultedDoctor", False)
         
         if not all([body_part, condition, timestamp]):
             continue
@@ -46,21 +29,34 @@ def count_recurrences(history: list, target_body_part: str, target_condition: st
                 entry_time = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
             elif hasattr(timestamp, 'isoformat'):
                 entry_time = timestamp.replace(tzinfo=timezone.utc)
+            else:
+                continue
+        except Exception as e:
+            continue
                 
-            if body_part == target_body_part and condition == target_condition:
+        if body_part == target_body_part and condition == target_condition:
+            if consulted_doctor:
+                last_consultation_date = entry_time
+                continue  # Skip counting if user consulted doctor
+                
+            if not first_report_date or entry_time < first_report_date:
+                first_report_date = entry_time
+                
+            # Only count entries after last consultation
+            if not last_consultation_date or entry_time > last_consultation_date:
                 if (now - entry_time) <= timedelta(days=7):
                     weekly += 1
                 if (now - entry_time) <= timedelta(days=30):
                     monthly += 1
                     
-        except Exception:
-            continue
-            
+    days_since_first_report = (now - first_report_date).days if first_report_date else 0
+    
     return {
-        "weekly": weekly if not consultation_found else 0,
-        "monthly": monthly if not consultation_found else 0,
-        "show_monthly": monthly >= 4,
-        "has_consulted": consultation_found
+        "weekly": weekly,
+        "monthly": monthly,
+        "show_monthly": days_since_first_report >= 7,
+        "first_report_days_ago": days_since_first_report,
+        "has_consulted": bool(last_consultation_date)
     }
 def calculate_dosage(condition, age, weight_kg=None, existing_conditions=[]):
     warnings = []
@@ -180,4 +176,4 @@ app.add_middleware(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=PORT)    
+    uvicorn.run(app, host="0.0.0.0", port=PORT)
