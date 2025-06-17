@@ -150,10 +150,8 @@ async def predict_risk(data: dict):
     # Default fallback
             "_default": 4
        }
-        def get_threshold(pain_type):
-            return PAIN_THRESHOLDS.get(pain_type, PAIN_THRESHOLDS["_default"])
         
-        emergency_threshold = get_threshold(data["condition"])
+        threshold_limit = PAIN_THRESHOLDS.get(data["condition"], PAIN_THRESHOLDS["_default"])
 
         # Calculate recurrence
         counts = count_recurrences(
@@ -175,7 +173,7 @@ async def predict_risk(data: dict):
         elif data["condition"] == "Muscle Strain": base_score *= 1.2
 
         # Emergency check
-        if counts["weekly"] >= emergency_threshold:
+        if counts["weekly"] >= threshold_limit:
             medication, warnings = calculate_dosage(
                 data["condition"],
                 age,
@@ -189,7 +187,7 @@ async def predict_risk(data: dict):
         "warnings": ["Stop all current medications until examined"],
         "threshold_crossed": True,  # New flag
         "reports_this_week": counts["weekly"],  # Add count
-        "threshold_limit": emergency_threshold  # Add threshold
+        "threshold_limit": threshold_limit  # Add threshold
     }
         # Standard response
         medication, warnings = calculate_dosage(
@@ -205,8 +203,8 @@ async def predict_risk(data: dict):
     "medication": medication,
     "warnings": warnings,
     "reports_this_week": counts["weekly"],
-    "threshold_limit": emergency_threshold,  # This is the key change
-    "threshold_crossed": counts["weekly"] >= emergency_threshold,
+    "threshold_limit": threshold_limit,  # This is the key change
+    "threshold_crossed": counts["weekly"] >= threshold_limit,
     "show_monthly": counts["show_monthly"],
     "reports_this_month": counts["monthly"]
 }
