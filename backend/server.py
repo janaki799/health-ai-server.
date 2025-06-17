@@ -103,11 +103,57 @@ async def predict_risk(data: dict):
 
     try:
         # Define thresholds
-        emergency_thresholds = {
-            "Nerve Pain": 3,
-            "Muscle Strain": 4
-        }
-        emergency_threshold = emergency_thresholds.get(data["condition"], 3)
+        PAIN_THRESHOLDS = {
+            # Lower back pains
+"Muscle Strain": 4,
+"Lumbar Sprain": 3,
+"Herniated Disc": 2,
+"Kidney Stone": 1,
+
+# Neck pains
+"Throat Infection": 3,
+"Thyroiditis": 2,
+"Lymphadenopathy": 2,
+"Muscle Strain (Neck Flexors)": 4,
+
+# Shoulder pains
+"Deltoid Muscle Strain": 4,
+"Biceps Tendonitis": 3,
+"Shoulder Impingement": 3,
+"Rotator Cuff Tendonitis": 3,
+
+# Epigastric pains
+"Gastritis": 3,
+"Peptic Ulcer": 2,
+"Pancreatitis": 1,
+"Pancreatitis (Early Stage)": 1,
+"Acid Reflux (GERD)": 5,
+
+# Breast pains (Female)
+"Cyclic Breast Pain": 4,
+"Non-Cyclic Breast Pain": 3,
+"Breast Cyst Pain": 2,
+"Mastitis": 2,
+
+# Left upper abdomen pains (Female)
+"Gas or Bloating": 6,
+"Constipation": 4,
+"Kidney Stone (Left)": 1,
+"Enlarged Spleen": 2,
+
+# Inguinal pains (Female)
+"Inguinal Hernia": 2,
+"Ovarian Cyst": 3,
+"Round Ligament Pain": 4,
+"Pelvic Inflammatory Disease": 2,
+    
+    # Default fallback
+            "_default": 4
+       }
+        def get_threshold(pain_type):
+            return PAIN_THRESHOLDS.get(pain_type, PAIN_THRESHOLDS["_default"])
+        
+        emergency_threshold = get_threshold(data["condition"])
 
         # Calculate recurrence
         counts = count_recurrences(
