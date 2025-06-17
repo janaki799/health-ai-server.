@@ -198,13 +198,18 @@ async def predict_risk(data: dict):
             data.get("weight"),
             data["existing_conditions"]
         )
+        # In server.py, modify the predict endpoint response:
         return {
-            "risk_score": min(100, base_score),
-            "advice": "Medication advised" if base_score >= 50 else "Home care recommended",
-            "medication": medication,
-            "warnings": warnings,
-            "timeframe": "week_warning" if counts["weekly"] > 0 else "new"
-        }
+    "risk_score": min(100, base_score),
+    "advice": "Medication advised" if base_score >= 50 else "Home care recommended",
+    "medication": medication,
+    "warnings": warnings,
+    "reports_this_week": counts["weekly"],
+    "threshold_limit": emergency_threshold,  # This is the key change
+    "threshold_crossed": counts["weekly"] >= emergency_threshold,
+    "show_monthly": counts["show_monthly"],
+    "reports_this_month": counts["monthly"]
+}
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
